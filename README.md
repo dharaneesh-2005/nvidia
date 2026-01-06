@@ -1,182 +1,143 @@
-# Interview Helper
+# Interview Helper - AI-Powered Interview Assistant
 
-A hidden Rust service that captures system audio and screen, processes everything with Groq AI, and displays results on your phone via web browser.
+Stealth interview assistant that captures audio, processes with Groq AI, and displays answers on your phone via web browser.
 
 ## Features
 
-- **System Audio Capture**: Real-time capture with Whisper v3 Large transcription
-- **AI Answers**: Instant responses using Llama 3.3 70B
-- **Screen Capture**: Hotkey-triggered (Ctrl+Shift+F12) with Llama 3.2 90B Vision analysis
-- **Code Browser**: Navigate and query your project codebase with AI
-- **Stealth Mode**: No UI on main system, runs as background service
-- **Phone Display**: Access everything via web browser on your phone
+- 🎤 **Real-time Audio Capture** - Captures system audio via Stereo Mix
+- 🤖 **AI Processing** - Groq Whisper for transcription, GPT-OSS-120B for answers
+- 📱 **Phone Display** - View answers on phone browser (stealth mode)
+- 📸 **Screenshot Analysis** - Capture coding problems with Ctrl+Shift+S
+- 🐛 **Debug Mode** - Analyze code errors with Ctrl+Shift+F
+- 🔍 **Manual Search** - Type questions with Ctrl+Alt+S
+- 💾 **Chat History** - Persistent conversation history
+- 🔄 **Auto-Reconnect** - WebSocket reconnection with message buffering
+- 📁 **Codebase Analysis** - Auto-index repos for Bug Bash/Integration rounds
 
-## Tech Stack
+## Quick Start
 
-- **Backend**: Rust (Axum web framework)
-- **AI**: Groq API (Whisper, Llama 3.3, Llama 3.2 Vision)
-- **Audio**: cpal + hound
-- **Screen**: screenshots + global-hotkey
-- **Frontend**: Vanilla HTML/CSS/JS with WebSocket
-
-## Setup
-
-### 1. Prerequisites
-
-- Rust (install from https://rustup.rs/)
-- Groq API key (get from https://console.groq.com/)
+### 1. Enable Stereo Mix (Windows)
+1. Right-click speaker icon → Sound settings
+2. Sound Control Panel → Recording tab
+3. Right-click → Show Disabled Devices
+4. Enable "Stereo Mix" → Set as default
 
 ### 2. Configure
-
 Edit `config.json`:
-
 ```json
 {
-  "groq_api_key": "YOUR_GROQ_API_KEY",
-  "project_path": "E:\\your\\project\\path"
+  "groq_api_key": "your_groq_api_key_here",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000
+  },
+  "hotkey": "Ctrl+Shift+S",
+  "interview_repo_path": "C:\\interview\\repo"
 }
 ```
 
-### 3. Build
-
-```bash
-cd interview-helper
-cargo build --release
-```
-
-### 4. Run
-
+### 3. Run
 ```bash
 cargo run --release
 ```
 
-Or run the binary directly:
-```bash
-target\release\interview_helper.exe
-```
+### 4. Access on Phone
+Open browser: `http://YOUR_PC_IP:5000`
 
-### 5. Access from Phone
+## Hotkeys
 
-1. Find your PC's IP address: `ipconfig` (look for IPv4)
-2. Open browser on phone: `http://YOUR_PC_IP:5000`
-3. Keep the browser open during your interview
+| Hotkey | Action |
+|--------|--------|
+| Ctrl+Shift+S | Capture screenshot for analysis |
+| Ctrl+Shift+F | Debug code error |
+| Ctrl+Alt+S | Open manual search |
+| Ctrl+Shift+C | Clear chat history |
 
-## Usage
+## Codebase Analysis (Bug Bash/Integration)
 
-### Live Tab
-- **Audio**: Automatically captures and transcribes system audio
-- **AI Answer**: Provides instant responses to questions
-- **Screen**: Press `Ctrl+Shift+F12` to capture and analyze
-
-### Code Tab
-- Browse your project files
-- View code with syntax highlighting
-- Ask AI questions about your codebase
-- Get explanations and suggestions
-
-## Install as Windows Service
-
-### Using NSSM (Recommended)
-
-1. Download NSSM: https://nssm.cc/download
-2. Install service:
-
-```cmd
-nssm install InterviewHelper "E:\project\newphonewrtc\interview-helper\target\release\interview_helper.exe"
-nssm set InterviewHelper AppDirectory "E:\project\newphonewrtc\interview-helper"
-nssm set InterviewHelper DisplayName "Interview Helper"
-nssm set InterviewHelper Description "Hidden interview assistant service"
-nssm set InterviewHelper Start SERVICE_AUTO_START
-nssm start InterviewHelper
-```
-
-### Verify Service
-
-```cmd
-nssm status InterviewHelper
-```
-
-### Remove Service
-
-```cmd
-nssm stop InterviewHelper
-nssm remove InterviewHelper confirm
-```
-
-## Groq API Models Used
-
-- **whisper-large-v3**: Audio transcription (fastest, most accurate)
-- **llama-3.3-70b-versatile**: Text generation and Q&A
-- **llama-3.2-90b-vision-preview**: Image analysis
+1. Clone interview repo to `C:\interview\repo`
+2. Press Ctrl+Alt+S
+3. Check "🔍 Auto-index codebase"
+4. Ask: "Where is the webhook validation bug?"
+5. AI analyzes entire codebase with GPT-OSS-120B
 
 ## Architecture
 
-```
-PC (Rust Service)
-├── Audio Capture (cpal) → Groq Whisper → Transcription
-├── Screen Capture (hotkey) → Groq Vision → Analysis
-├── Code Manager → File indexing + AI queries
-└── Axum Server (localhost:5000)
-    └── WebSocket → Phone Browser
+- **Backend**: Rust (Axum + Tokio)
+- **Frontend**: HTML/CSS/JS with WebSocket
+- **AI**: Groq API (Whisper, GPT-OSS-120B, Llama-4-Scout)
+- **Audio**: WASAPI loopback (Stereo Mix)
+
+## Build Installer
+
+```bash
+cargo build --release
+iscc installer.iss
 ```
 
-## Security Notes
+## Interview Usage
 
-- Service runs on localhost by default
-- Change `server.host` to `0.0.0.0` to allow network access
-- Use firewall rules to restrict access
-- Groq API key is stored in config.json (keep secure)
-- All processing happens on your PC
-- Only API calls go to Groq servers
+### HackerRank Assessment
+- Audio capture works perfectly (no screen sharing)
+- Use for algorithm hints, complexity analysis
+
+### Coding Round
+- Quick syntax lookups
+- Edge case suggestions
+- Time/space complexity reminders
+
+### Bug Bash
+- Auto-index codebase from `C:\interview\repo`
+- Ask specific bug location questions
+- Get file paths and fixes
+
+### Integration Round
+- Analyze architecture patterns
+- API integration suggestions
+- Boilerplate code generation
+
+## Configuration
+
+### Audio Settings
+- Sample rate: 16000 Hz
+- Channels: Mono
+- Chunk duration: 2000ms
+
+### AI Models
+- Transcription: whisper-large-v3
+- Text: openai/gpt-oss-20b
+- Vision: meta-llama/llama-4-scout-17b-16e-instruct
+- Codebase: openai/gpt-oss-120b
+
+### Timing
+- Silence timeout: 1000ms
+- Energy drop timeout: 350ms
+- Max audio duration: 30s
 
 ## Troubleshooting
 
-### Audio not capturing
-- Check Windows audio settings
-- Ensure microphone/system audio is enabled
-- Try running as administrator
+### No Audio Capture
+- Ensure Stereo Mix is enabled and set as default
+- Check if audio is playing through speakers (not headphones)
 
-### Hotkey not working
-- Check if another app uses the same hotkey
-- Change hotkey in config.json
-- Run as administrator for global hotkey access
+### WebSocket Disconnects
+- Auto-reconnect with exponential backoff (1s → 30s)
+- Messages buffered during disconnect
 
-### Can't connect from phone
-- Ensure PC and phone are on same WiFi
-- Check Windows Firewall (allow port 5000)
-- Verify PC IP address with `ipconfig`
+### Codebase Not Found
+- Verify repo cloned to `C:\interview\repo`
+- Check path in `config.json`
 
-### Groq API errors
-- Verify API key in config.json
-- Check Groq API status
-- Ensure you have API credits
+## Security Notes
 
-## Performance
-
-- **Audio latency**: ~3 seconds (configurable)
-- **Transcription**: ~1-2 seconds via Groq
-- **AI response**: ~2-3 seconds
-- **Screen capture**: Instant
-- **Vision analysis**: ~3-4 seconds
-
-## Development
-
-Run in development mode:
-```bash
-cargo run
-```
-
-Build optimized release:
-```bash
-cargo build --release
-```
-
-Enable logging:
-```bash
-$env:RUST_LOG="info"
-cargo run
-```
+- API key stored in `config.json` (don't commit)
+- Screen capture excluded from recording
+- No data sent to external servers except Groq API
 
 ## License
 
-MIT
+MIT License - Use at your own risk
+
+## Disclaimer
+
+This tool is for educational purposes. Using AI assistance during interviews may violate interview policies. Use responsibly.
