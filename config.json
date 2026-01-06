@@ -1,0 +1,19 @@
+{
+  "groq_api_key": "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",
+  "server": {
+    "host": "0.0.0.0",
+    "port": 5000
+  },
+  "hotkey": "Ctrl+Shift+S",
+  "project_path": "E:\\project\\newphonewrtc\\interview-helper",
+  "audio": {
+    "sample_rate": 16000,
+    "channels": 1,
+    "chunk_duration_ms": 2000
+  },
+  "models": {
+    "whisper": "whisper-large-v3",
+    "text": "openai/gpt-oss-20b",
+    "vision": "meta-llama/llama-4-scout-17b-16e-instruct"
+  }
+}

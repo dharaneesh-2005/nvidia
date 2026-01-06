@@ -1,0 +1,61 @@
+[package]
+name = "interview_helper"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Web server
+axum = { version = "0.7", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors"] }
+
+# WebSocket
+axum-extra = { version = "0.9", features = ["typed-header"] }
+tokio-tungstenite = "0.21"
+
+# Audio
+cpal = "0.15"
+hound = "3.5"
+crossbeam-channel = "0.5"
+
+# Screen capture
+screenshots = "0.8"
+image = "0.24"
+
+# HTTP client for Groq API
+reqwest = { version = "0.11", features = ["json", "multipart"] }
+
+# JSON
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Base64 encoding
+base64 = "0.21"
+
+# File watching
+notify = "6.1"
+walkdir = "2.4"
+
+# Async
+futures = "0.3"
+async-trait = "0.1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Config
+config = "0.14"
+
+# Windows service
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.6"
+windows = { version = "0.52", features = ["Win32_System_Services", "Win32_Foundation"] }
+winapi = { version = "0.3", features = ["winuser", "errhandlingapi"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Interview Helper</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link href="/static/css/search.css" rel="stylesheet" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        html {
+            background: #1a1a2e;
+            min-height: 100vh;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background-attachment: fixed;
+            color: #fff;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            position: relative;
+        }
+        
+        header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 8px 12px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        h1 {
+            font-size: 18px;
+            font-weight: 700;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .status {
+            font-size: 11px;
+            padding: 4px 10px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            font-weight: 600;
+        }
+        
+        .status.connected {
+            background: rgba(16, 163, 127, 0.3);
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 6px;
+        }
+        
+        .btn {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            flex: 1;
+            text-align: center;
+        }
+        
+        .btn:active {
+            transform: scale(0.95);
+            background: rgba(255, 255, 255, 0.3);
+        }
+        
+        .btn-debug {
+            background: rgba(231, 76, 60, 0.3);
+            border-color: rgba(231, 76, 60, 0.5);
+        }
+        
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 8px 80px 8px;
+            -webkit-overflow-scrolling: touch;
+        }
+        
+        .message {
+            margin-bottom: 12px;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        
+        .msg-q {
+            background: rgba(30, 30, 50, 0.85);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            padding: 12px;
+            margin-bottom: 8px;
+        }
+        
+        .msg-a {
+            background: rgba(40, 40, 70, 0.9);
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            border-left: 3px solid #10a37f;
+        }
+        
+        .msg-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 6px;
+            opacity: 0.8;
+        }
+        
+        .msg-content {
+            font-size: 16px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            max-width: 100%;
+            overflow-x: auto;
+        }
+        
+        .msg-content p {
+            margin: 8px 0;
+        }
+        
+        .msg-content strong {
+            font-weight: 700;
+        }
+        
+        .msg-content h2 {
+            font-size: 17px;
+            font-weight: 700;
+            margin: 12px 0 8px 0;
+        }
+        
+        .msg-content h3 {
+            font-size: 16px;
+            font-weight: 700;
+            margin: 10px 0 6px 0;
+        }
+        
+        .msg-content ul, .msg-content ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+        
+        .msg-content li {
+            margin: 4px 0;
+        }
+        
+        .loading::after {
+            content: '...';
+            animation: dots 1.5s steps(4, end) infinite;
+        }
+        
+        @keyframes dots {
+            0%, 20% { content: '.'; }
+            40% { content: '..'; }
+            60%, 100% { content: '...'; }
+        }
+        
+        .code-block {
+            margin: 10px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(20, 20, 30, 0.95);
+            font-size: 13px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .code-header {
+            background: rgba(15, 15, 25, 0.95);
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .code-lang {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+        
+        .copy-btn {
+            background: rgba(16, 163, 127, 0.3);
+            border: 1px solid rgba(16, 163, 127, 0.5);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        .copy-btn.copied {
+            background: rgba(16, 163, 127, 0.6);
+        }
+        
+        pre[class*="language-"] {
+            margin: 0 !important;
+            background: rgba(20, 20, 30, 0.95) !important;
+            padding: 10px !important;
+            max-height: 200px;
+            overflow: auto;
+            -webkit-overflow-scrolling: touch;
+            max-width: 100%;
+        }
+        
+        code[class*="language-"] {
+            font-family: 'Courier New', monospace !important;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            color: #e0e0e0 !important;
+            text-shadow: none !important;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+        
+        .msg-content code:not([class*="language-"]) {
+            background: rgba(20, 20, 30, 0.9);
+            padding: 3px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            color: #e0e0e0;
+        }
+        
+        .markdown-table {
+            width: 100%;
+            margin: 10px 0;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            display: block;
+            font-size: 13px;
+        }
+        
+        .markdown-table table {
+            width: 100%;
+            min-width: 300px;
+        }
+        
+        .markdown-table th {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px 10px;
+            text-align: left;
+            font-weight: 700;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .markdown-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .markdown-table tr:last-child td {
+            border-bottom: none;
+        }
+        
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 2px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <h1>🎯 Interview Helper</h1>
+                <div class="status" id="status">●</div>
+            </div>
+            <div class="btn-group">
+                <button class="btn" onclick="captureScreen()">📸 Capture</button>
+                <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
+                <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
+            </div>
+        </header>
+        
+        <div class="chat-container" id="chat"></div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="/static/js/search.js"></script>
+    <script>
+        let ws;
+        let currentAnswer = null;
+        let reconnectAttempts = 0;
+        let reconnectTimer = null;
+        let messageQueue = [];
+        let isConnected = false;
+        const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
+        const BASE_DELAY = 1000; // 1 second base
+        
+        // Restore chat history on load
+        window.addEventListener('DOMContentLoaded', () => {
+            const saved = localStorage.getItem('chat_history');
+            if (saved) {
+                document.getElementById('chat').innerHTML = saved;
+            }
+        });
+        
+        // Save chat history whenever it changes
+        function saveChat() {
+            const chatHtml = document.getElementById('chat').innerHTML;
+            try {
+                localStorage.setItem('chat_history', chatHtml);
+            } catch (e) {
+                if (e.name === 'QuotaExceededError') {
+                    console.warn('localStorage quota exceeded, removing old messages');
+                    const messages = document.getElementById('chat').querySelectorAll('.message');
+                    const keepCount = Math.floor(messages.length * 0.5);
+                    for (let i = 0; i < messages.length - keepCount; i++) {
+                        messages[i].remove();
+                    }
+                    try {
+                        localStorage.setItem('chat_history', document.getElementById('chat').innerHTML);
+                    } catch (e2) {
+                        console.error('Still failed after cleanup, clearing all history');
+                        localStorage.removeItem('chat_history');
+                    }
+                }
+            }
+        }
+        
+        function connect() {
+            // Clear any existing reconnect timer
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+            
+            console.log(`Connecting to WebSocket (attempt ${reconnectAttempts + 1})...`);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (error) {
+                console.error('WebSocket creation failed:', error);
+                scheduleReconnect();
+                return;
+            }
+            
+            ws.onopen = () => {
+                console.log('✓ WebSocket connected');
+                isConnected = true;
+                reconnectAttempts = 0;
+                document.getElementById('status').textContent = '●';
+                document.getElementById('status').classList.add('connected');
+                
+                // Flush queued messages
+                if (messageQueue.length > 0) {
+                    console.log(`Flushing ${messageQueue.length} queued messages`);
+                    messageQueue.forEach(msg => {
+                        if (ws.readyState === WebSocket.OPEN) {
+                            ws.send(msg);
+                        }
+                    });
+                    messageQueue = [];
+                }
+            };
+            
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleMessage(data);
+                } catch (error) {
+                    console.error('Failed to parse message:', error);
+                }
+            };
+            
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+            };
+            
+            ws.onclose = (event) => {
+                isConnected = false;
+                console.log(`WebSocket closed (code: ${event.code}, reason: ${event.reason})`);
+                document.getElementById('status').textContent = '●';
+                document.getElementById('status').classList.remove('connected');
+                
+                // Don't reconnect if closed normally (code 1000)
+                if (event.code !== 1000) {
+                    scheduleReconnect();
+                }
+            };
+        }
+        
+        function scheduleReconnect() {
+            reconnectAttempts++;
+            const delay = Math.min(BASE_DELAY * Math.pow(2, reconnectAttempts - 1), MAX_RECONNECT_DELAY);
+            
+            console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttempts})...`);
+            document.getElementById('status').textContent = `⟳ ${Math.round(delay/1000)}s`;
+            
+            reconnectTimer = setTimeout(() => {
+                connect();
+            }, delay);
+        }
+        
+        function sendMessage(message) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(message);
+            } else {
+                console.warn('WebSocket not connected, queuing message');
+                messageQueue.push(message);
+                // Limit queue size to prevent memory issues
+                if (messageQueue.length > 50) {
+                    messageQueue.shift();
+                }
+            }
+        }
+        
+        function handleMessage(data) {
+            const chat = document.getElementById('chat');
+            
+            if (data.type === 'toggle_search') {
+                if (searchModal && searchModal.classList.contains('active')) {
+                    closeSearchModal();
+                } else {
+                    openSearchModal();
+                }
+            } else if (data.type === 'search_enter') {
+                if (searchInput && searchModal && searchModal.classList.contains('active')) {
+                    const question = searchInput.value.trim();
+                    if (question) {
+                        submitManualQuestion(question);
+                        searchInput.value = '';
+                    }
+                    closeSearchModal();
+                }
+            } else if (data.type === 'search_keystroke') {
+                // Add keystrokes to search input
+                if (searchInput && searchModal.classList.contains('active')) {
+                    searchInput.value += data.text;
+                }
+            } else if (data.type === 'search_backspace') {
+                // Handle backspace
+                if (searchInput && searchModal.classList.contains('active')) {
+                    searchInput.value = searchInput.value.slice(0, -1);
+                }
+            } else if (data.type === 'transcription') {
+                const msg = document.createElement('div');
+                msg.className = 'message';
+                msg.innerHTML = `
+                    <div class="msg-q">
+                        <div class="msg-label">Q</div>
+                        <div class="msg-content">${escapeHtml(data.text)}</div>
+                    </div>
+                    <div class="msg-a">
+                        <div class="msg-label">A</div>
+                        <div class="msg-content"><span class="loading">Thinking</span></div>
+                    </div>
+                `;
+                chat.appendChild(msg);
+                currentAnswer = msg.querySelector('.msg-a .msg-content');
+                saveChat();
+                scrollToBottom();
+            } else if (data.type === 'answer' && currentAnswer) {
+                try {
+                    currentAnswer.innerHTML = formatAnswer(data.text);
+                    saveChat();
+                    setTimeout(() => {
+                        currentAnswer.querySelectorAll('code[class*="language-"]').forEach(el => {
+                            Prism.highlightElement(el);
+                        });
+                    }, 50);
+                } catch (error) {
+                    console.error('Error formatting answer:', error);
+                    // Fallback: display raw text if formatting fails
+                    currentAnswer.innerHTML = '<p>' + escapeHtml(data.text) + '</p>';
+                }
+            }
+        }
+        
+        function formatAnswer(text) {
+            if (!text || text.trim() === '') {
+                return '<p>No response received</p>';
+            }
+            
+            try {
+                const codeBlockRegex = /```(\w+)?\s*\n([\s\S]*?)```/g;
+                const codeBlocks = [];
+                let formatted = text;
+                
+                let match;
+                while ((match = codeBlockRegex.exec(text)) !== null) {
+                    const lang = match[1] || 'python';
+                    const code = match[2].trim();
+                    const id = 'code-' + Math.random().toString(36).substr(2, 9);
+                    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
+                    codeBlocks.push(`
+                        <div class="code-block">
+                            <div class="code-header">
+                                <span class="code-lang">${escapeHtml(lang)}</span>
+                                <button class="copy-btn" onclick="copyCode('${id}')">Copy</button>
+                            </div>
+                            <pre><code id="${id}" class="language-${escapeHtml(lang)}">${escapeHtml(code)}</code></pre>
+                        </div>
+                    `);
+                    formatted = formatted.replace(match[0], placeholder);
+                }
+                
+                formatted = escapeHtml(formatted);
+                formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+                formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
+                formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
+                formatted = formatted.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+                formatted = formatted.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+                formatted = formatted.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+                formatted = formatTables(formatted);
+                
+                // Better list handling - wrap consecutive <li> items
+                const lines = formatted.split('\n');
+                let result = [];
+                let inList = false;
+                
+                for (let line of lines) {
+                    if (line.match(/^- (.+)$/)) {
+                        const content = line.substring(2);
+                        if (!inList) {
+                            result.push('<ul>');
+                            inList = true;
+                        }
+                        result.push(`<li>${content}</li>`);
+                    } else {
+                        if (inList) {
+                            result.push('</ul>');
+                            inList = false;
+                        }
+                        result.push(line);
+                    }
+                }
+                if (inList) result.push('</ul>');
+                formatted = result.join('\n');
+                
+                formatted = formatted.split('\n\n').map(p => {
+                    if (!p.match(/^<[hult]/) && !p.includes('__CODE_BLOCK_')) {
+                        return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
+                    }
+                    return p;
+                }).join('');
+                
+                codeBlocks.forEach((block, i) => {
+                    formatted = formatted.replace(`__CODE_BLOCK_${i}__`, block);
+                });
+                
+                return formatted || '<p>' + escapeHtml(text) + '</p>';
+            } catch (error) {
+                console.error('Format error:', error);
+                return '<p>' + escapeHtml(text) + '</p>';
+            }
+        }
+        
+        function formatTables(text) {
+            const lines = text.split('\n');
+            let result = [];
+            let inTable = false;
+            let tableRows = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                
+                if (line.includes('|')) {
+                    if (!inTable) {
+                        inTable = true;
+                        tableRows = [];
+                    }
+                    
+                    if (line.match(/^\|?[\s:-]+\|[\s:-]+/)) {
+                        continue;
+                    }
+                    
+                    const cells = line.split('|').map(c => c.trim()).filter(c => c);
+                    tableRows.push(cells);
+                } else {
+                    if (inTable && tableRows.length > 0) {
+                        let table = '<div class="markdown-table"><table>';
+                        tableRows.forEach((row, idx) => {
+                            if (idx === 0) {
+                                table += '<thead><tr>';
+                                row.forEach(cell => table += `<th>${cell}</th>`);
+                                table += '</tr></thead><tbody>';
+                            } else {
+                                table += '<tr>';
+                                row.forEach(cell => table += `<td>${cell}</td>`);
+                                table += '</tr>';
+                            }
+                        });
+                        table += '</tbody></table></div>';
+                        result.push(table);
+                        tableRows = [];
+                        inTable = false;
+                    }
+                    result.push(line);
+                }
+            }
+            
+            if (inTable && tableRows.length > 0) {
+                let table = '<div class="markdown-table"><table>';
+                tableRows.forEach((row, idx) => {
+                    if (idx === 0) {
+                        table += '<thead><tr>';
+                        row.forEach(cell => table += `<th>${cell}</th>`);
+                        table += '</tr></thead><tbody>';
+                    } else {
+                        table += '<tr>';
+                        row.forEach(cell => table += `<td>${cell}</td>`);
+                        table += '</tr>';
+                    }
+                });
+                table += '</tbody></table></div>';
+                result.push(table);
+            }
+            
+            return result.join('\n');
+        }
+        
+        function copyCode(id) {
+            const code = document.getElementById(id);
+            navigator.clipboard.writeText(code.textContent).then(() => {
+                const btn = code.closest('.code-block').querySelector('.copy-btn');
+                btn.textContent = 'Copied!';
+                btn.classList.add('copied');
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                    btn.classList.remove('copied');
+                }, 2000);
+            });
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
+        function scrollToBottom() {
+            // Don't auto-scroll - let user control scroll position
+        }
+        
+        function captureScreen() {
+            sendMessage('capture_screen');
+        }
+        
+        function debugCode() {
+            sendMessage('debug_code');
+        }
+        
+        function clearHistory() {
+            if (confirm('Clear all chat history?')) {
+                localStorage.removeItem('chat_history');
+                document.getElementById('chat').innerHTML = '';
+                currentAnswer = null;
+            }
+        }
+        
+        connect();
+    </script>
+</body>
+</html>
