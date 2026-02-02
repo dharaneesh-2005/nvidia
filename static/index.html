@@ -199,6 +199,23 @@
             margin: 10px 0 6px 0;
         }
         
+        /* Groq-style heading classes */
+        .heading1 { 
+            font-size: 1.5em; 
+            font-weight: 700; 
+            margin: 0.8em 0; 
+        }
+        .heading2 { 
+            font-size: 1.3em; 
+            font-weight: 600; 
+            margin: 0.7em 0; 
+        }
+        .heading3 { 
+            font-size: 1.1em; 
+            font-weight: 500; 
+            margin: 0.6em 0; 
+        }
+        
         .msg-content ul, .msg-content ol {
             margin: 8px 0;
             padding-left: 24px;
@@ -300,7 +317,6 @@
             font-family: 'Fira Code', 'Courier New', monospace !important;
             font-size: 12px !important;
             line-height: 1.5 !important;
-            color: #e0e0e0 !important;
             text-shadow: none !important;
             white-space: pre !important;
             word-break: normal !important;
@@ -364,6 +380,81 @@
         ::-webkit-scrollbar-thumb {
             background: rgba(255, 255, 255, 0.3);
             border-radius: 2px;
+        }
+        
+        /* Enhanced Prism.js C++ Syntax Highlighting */
+        .token.comment,
+        .token.prolog,
+        .token.doctype,
+        .token.cdata {
+            color: #7C7C7C;
+        }
+        
+        .token.punctuation {
+            color: #c5c8c6;
+        }
+        
+        .token.property,
+        .token.tag,
+        .token.boolean,
+        .token.number,
+        .token.constant,
+        .token.symbol,
+        .token.deleted {
+            color: #96CBFE;
+        }
+        
+        .token.selector,
+        .token.attr-name,
+        .token.string,
+        .token.char,
+        .token.builtin,
+        .token.inserted {
+            color: #A8FF60;
+        }
+        
+        .token.operator,
+        .token.entity,
+        .token.url,
+        .language-css .token.string,
+        .style .token.string {
+            color: #EDEDED;
+        }
+        
+        .token.atrule,
+        .token.attr-value,
+        .token.keyword {
+            color: #CFCB90;
+        }
+        
+        .token.function,
+        .token.class-name {
+            color: #FFD2A7;
+        }
+        
+        .token.regex,
+        .token.important,
+        .token.variable {
+            color: #E0C589;
+        }
+        
+        /* C++ specific tokens */
+        .token.directive-hash,
+        .token.directive.keyword {
+            color: #9B859D;
+        }
+        
+        .token.macro.property {
+            color: #9B859D;
+        }
+        
+        /* Ensure proper contrast in our dark theme */
+        pre[class*="language-"] {
+            background: rgba(20, 20, 30, 0.95) !important;
+        }
+        
+        code[class*="language-"] {
+            background: transparent !important;
         }
     </style>
 </head>
@@ -611,7 +702,7 @@
         }
         
         function formatAnswer(text) {
-            // Enhanced markdown rendering with proper code block handling
+            // Groq-style markdown rendering with enhanced formatting
             if (!text || text.trim() === '') {
                 return '<p>No response</p>';
             }
@@ -626,8 +717,15 @@
             result = result.replace(/```([\w]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
                 const placeholder = `__CODE_BLOCK_${codeBlockIndex}__`;
                 const cleanCode = code.replace(/^\n+|\n+$/g, ''); // Remove leading/trailing newlines
-                const langClass = lang ? `language-${lang}` : 'language-text';
-                const displayLang = lang || 'code';
+                
+                // Default to cpp if no language specified or if it's a common C++ variant
+                let detectedLang = lang ? lang.toLowerCase() : '';
+                if (!detectedLang || detectedLang === 'c++' || detectedLang === 'cxx') {
+                    detectedLang = 'cpp';
+                }
+                
+                const langClass = `language-${detectedLang}`;
+                const displayLang = detectedLang === 'cpp' ? 'C++' : (lang || 'code');
                 
                 codeBlocks[codeBlockIndex] = `<div class="code-block">
                     <div class="code-header">
@@ -655,86 +753,136 @@
             // Step 3: Now escape HTML for the remaining text
             result = escapeHtml(result);
             
-            // Step 4: Process markdown formatting
-            // Bold and italic (non-greedy matching)
-            result = result.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
-            result = result.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+            // Step 4: Process markdown formatting (Groq-style)
+            // Bold and italic (non-greedy matching, avoid crossing newlines)
+            result = result.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+            result = result.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
             
-            // Headings
-            result = result.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-            result = result.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-            result = result.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            // Headings with proper spacing (Groq-style classes)
+            result = result.replace(/^### (.+)$/gm, '<h3 class="heading3">$1</h3>');
+            result = result.replace(/^## (.+)$/gm, '<h2 class="heading2">$1</h2>');
+            result = result.replace(/^# (.+)$/gm, '<h1 class="heading1">$1</h1>');
             
-            // Step 5: Process lists
+            // Horizontal rules
+            result = result.replace(/^---$/gm, '<hr class="my-10">');
+            
+            // Step 5: Process tables (Groq-style)
+            result = formatTables(result);
+            
+            // Step 6: Process lists with proper nesting and RTL support
             const lines = result.split('\n');
             const processedLines = [];
             let inList = false;
+            let inOrderedList = false;
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
-                const isListItem = /^- (.+)/.test(line);
+                const isUnorderedListItem = /^- (.+)/.test(line);
+                const isOrderedListItem = /^\d+\. (.+)/.test(line);
+                const isListItem = isUnorderedListItem || isOrderedListItem;
                 
-                if (isListItem && !inList) {
-                    processedLines.push('<ul>');
+                // Handle list transitions
+                if (isUnorderedListItem && !inList) {
+                    processedLines.push('<ul class="ml-5 mb-4 list-disc">');
                     inList = true;
-                }
-                
-                if (!isListItem && inList) {
-                    processedLines.push('</ul>');
+                    inOrderedList = false;
+                } else if (isOrderedListItem && !inOrderedList) {
+                    if (inList) processedLines.push('</ul>');
+                    processedLines.push('<ol class="ml-5 mb-4 list-decimal">');
+                    inList = true;
+                    inOrderedList = true;
+                } else if (!isListItem && inList) {
+                    processedLines.push(inOrderedList ? '</ol>' : '</ul>');
                     inList = false;
+                    inOrderedList = false;
                 }
                 
-                if (isListItem) {
-                    processedLines.push(line.replace(/^- (.+)/, '<li>$1</li>'));
+                if (isUnorderedListItem) {
+                    processedLines.push(line.replace(/^- (.+)/, '<li class="ml-5">$1</li>'));
+                } else if (isOrderedListItem) {
+                    processedLines.push(line.replace(/^\d+\. (.+)/, '<li class="ml-5">$1</li>'));
                 } else {
                     processedLines.push(line);
                 }
             }
             
             if (inList) {
-                processedLines.push('</ul>');
+                processedLines.push(inOrderedList ? '</ol>' : '</ul>');
             }
             
             result = processedLines.join('\n');
             
-            // Step 6: Process paragraphs (but preserve code block placeholders)
+            // Step 7: Process paragraphs with proper spacing and RTL detection
             const paragraphs = result.split('\n\n');
             const formattedParagraphs = paragraphs.map(p => {
                 const trimmed = p.trim();
                 if (!trimmed) return '';
                 
-                // Don't wrap code block placeholders or headings or lists
+                // Don't wrap code blocks, headings, lists, tables, or hr
                 if (trimmed.includes('__CODE_BLOCK_') || 
                     trimmed.startsWith('<h') || 
                     trimmed.startsWith('<ul>') || 
-                    trimmed.startsWith('<li>')) {
+                    trimmed.startsWith('<ol>') ||
+                    trimmed.startsWith('<li>') ||
+                    trimmed.startsWith('<table>') ||
+                    trimmed.startsWith('<div class="markdown-table">') ||
+                    trimmed.startsWith('<hr>')) {
                     return trimmed;
                 }
                 
                 // Convert single line breaks to <br> within paragraphs
                 const withBreaks = trimmed.replace(/\n/g, '<br>');
-                return `<p>${withBreaks}</p>`;
+                
+                // Detect RTL text (basic detection for Arabic, Hebrew, etc.)
+                const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+                const isRTL = rtlPattern.test(withBreaks);
+                
+                return `<p class="${isRTL ? 'text-right' : 'text-left'} mb-4"${isRTL ? ' dir="rtl"' : ''}>${withBreaks}</p>`;
             });
             
             result = formattedParagraphs.join('\n\n');
             
-            // Step 7: Restore code blocks
+            // Step 8: Restore code blocks
             for (let i = 0; i < codeBlocks.length; i++) {
                 result = result.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
             }
             
-            // Step 8: Restore inline code
+            // Step 9: Restore inline code
             for (let i = 0; i < inlineCodes.length; i++) {
                 result = result.replace(`__INLINE_CODE_${i}__`, inlineCodes[i]);
             }
             
-            // Step 9: Trigger syntax highlighting
+            // Step 10: Trigger syntax highlighting with proper timing and fallback
             setTimeout(() => {
                 document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
-                    Prism.highlightElement(el);
-                    el.classList.add('highlighted');
+                    // Ensure the language class is properly set
+                    if (!el.className.includes('language-')) {
+                        el.className += ' language-cpp';
+                    }
+                    
+                    try {
+                        Prism.highlightElement(el);
+                        el.classList.add('highlighted');
+                    } catch (error) {
+                        console.warn('Prism highlighting failed:', error);
+                        // Fallback: at least ensure proper formatting
+                        el.classList.add('highlighted');
+                    }
                 });
-            }, 50);
+                
+                // Force re-highlight any remaining unhighlighted code
+                setTimeout(() => {
+                    document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
+                        el.className = 'language-cpp';
+                        try {
+                            Prism.highlightElement(el);
+                            el.classList.add('highlighted');
+                        } catch (e) {
+                            el.classList.add('highlighted');
+                        }
+                    });
+                }, 200);
+            }, 100);
             
             return result;
         }
@@ -754,6 +902,7 @@
                         tableRows = [];
                     }
                     
+                    // Skip separator lines (e.g., |---|---|)
                     if (line.match(/^\|?[\s:-]+\|[\s:-]+/)) {
                         continue;
                     }
@@ -762,15 +911,25 @@
                     tableRows.push(cells);
                 } else {
                     if (inTable && tableRows.length > 0) {
-                        let table = '<div class="markdown-table"><table>';
+                        let table = '<div class="markdown-table"><table class="table-auto w-full mb-4">';
                         tableRows.forEach((row, idx) => {
                             if (idx === 0) {
-                                table += '<thead><tr>';
-                                row.forEach(cell => table += `<th>${cell}</th>`);
+                                table += '<thead class="text-left"><tr>';
+                                row.forEach(cell => {
+                                    // Detect RTL content in table cells
+                                    const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+                                    const isRTL = rtlPattern.test(cell);
+                                    table += `<th class="p-2 font-bold${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</th>`;
+                                });
                                 table += '</tr></thead><tbody>';
                             } else {
                                 table += '<tr>';
-                                row.forEach(cell => table += `<td>${cell}</td>`);
+                                row.forEach(cell => {
+                                    // Detect RTL content in table cells
+                                    const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+                                    const isRTL = rtlPattern.test(cell);
+                                    table += `<td class="p-2${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</td>`;
+                                });
                                 table += '</tr>';
                             }
                         });
@@ -784,15 +943,23 @@
             }
             
             if (inTable && tableRows.length > 0) {
-                let table = '<div class="markdown-table"><table>';
+                let table = '<div class="markdown-table"><table class="table-auto w-full mb-4">';
                 tableRows.forEach((row, idx) => {
                     if (idx === 0) {
-                        table += '<thead><tr>';
-                        row.forEach(cell => table += `<th>${cell}</th>`);
+                        table += '<thead class="text-left"><tr>';
+                        row.forEach(cell => {
+                            const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+                            const isRTL = rtlPattern.test(cell);
+                            table += `<th class="p-2 font-bold${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</th>`;
+                        });
                         table += '</tr></thead><tbody>';
                     } else {
                         table += '<tr>';
-                        row.forEach(cell => table += `<td>${cell}</td>`);
+                        row.forEach(cell => {
+                            const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
+                            const isRTL = rtlPattern.test(cell);
+                            table += `<td class="p-2${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</td>`;
+                        });
                         table += '</tr>';
                     }
                 });

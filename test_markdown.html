@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Markdown Rendering</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+        }
+        
+        .code-block {
+            margin: 12px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(20, 20, 30, 0.95);
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 100%;
+            display: block;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .code-header {
+            background: rgba(15, 15, 25, 0.95);
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .code-lang {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+        
+        pre[class*="language-"], pre code {
+            margin: 0 !important;
+            background: rgba(20, 20, 30, 0.95) !important;
+            padding: 12px !important;
+            max-height: 400px;
+            overflow-x: auto;
+            overflow-y: auto;
+            width: 100%;
+            white-space: pre !important;
+            word-break: normal !important;
+            word-wrap: normal !important;
+            display: block;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            tab-size: 4;
+            border-radius: 0 0 8px 8px;
+        }
+        
+        code[class*="language-"], pre code {
+            font-family: 'Fira Code', 'Courier New', monospace !important;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            text-shadow: none !important;
+            white-space: pre !important;
+            word-break: normal !important;
+            word-wrap: normal !important;
+            overflow: visible;
+            display: block;
+            tab-size: 4;
+        }
+    </style>
+</head>
+<body>
+    <h1>Test C++ Syntax Highlighting</h1>
+    
+    <div id="test-container"></div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
+    
+    <script>
+        const testCode = `# Enhanced Markdown Test
+
+This is a **bold** text and this is *italic* text.
+
+## Code Examples
+
+Here's some C++ code:
+
+\`\`\`cpp
+#include <iostream>
+#include <vector>
+#include <algorithm>
+
+class Solution {
+public:
+    int maxSubArray(vector<int>& nums) {
+        int maxSum = nums[0];
+        int currentSum = nums[0];
+        
+        for (int i = 1; i < nums.size(); i++) {
+            // Either extend existing subarray or start new one
+            currentSum = max(nums[i], currentSum + nums[i]);
+            maxSum = max(maxSum, currentSum);
+        }
+        
+        return maxSum;
+    }
+};
+\`\`\`
+
+### Lists and Tables
+
+Here's an unordered list:
+- First item with **bold** text
+- Second item with *italic* text
+- Third item with \`inline code\`
+
+And an ordered list:
+1. Step one
+2. Step two with **emphasis**
+3. Step three
+
+Here's a table:
+
+| Algorithm | Time Complexity | Space Complexity |
+|-----------|----------------|------------------|
+| Bubble Sort | O(n²) | O(1) |
+| Quick Sort | O(n log n) | O(log n) |
+| Merge Sort | O(n log n) | O(n) |
+
+---
+
+## More Features
+
+This is a paragraph with \`inline code\` and **bold text**.
+
+Another paragraph here.`;
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatAnswer(text) {
+            if (!text || text.trim() === '') {
+                return '<p>No response</p>';
+            }
+            
+            let result = text;
+            
+            // Step 1: Process code blocks FIRST
+            const codeBlocks = [];
+            let codeBlockIndex = 0;
+            
+            result = result.replace(/```([\w]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+                const placeholder = `__CODE_BLOCK_${codeBlockIndex}__`;
+                const cleanCode = code.replace(/^\n+|\n+$/g, '');
+                
+                let detectedLang = lang ? lang.toLowerCase() : '';
+                if (!detectedLang || detectedLang === 'c++' || detectedLang === 'cxx') {
+                    detectedLang = 'cpp';
+                }
+                
+                const langClass = `language-${detectedLang}`;
+                const displayLang = detectedLang === 'cpp' ? 'C++' : (lang || 'code');
+                
+                codeBlocks[codeBlockIndex] = `<div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">${displayLang}</span>
+                    </div>
+                    <pre><code class="${langClass}">${escapeHtml(cleanCode)}</code></pre>
+                </div>`;
+                
+                codeBlockIndex++;
+                return placeholder;
+            });
+            
+            // Step 2: Process inline code
+            const inlineCodes = [];
+            let inlineCodeIndex = 0;
+            
+            result = result.replace(/`([^`\n]+)`/g, (match, code) => {
+                const placeholder = `__INLINE_CODE_${inlineCodeIndex}__`;
+                inlineCodes[inlineCodeIndex] = `<code>${escapeHtml(code)}</code>`;
+                inlineCodeIndex++;
+                return placeholder;
+            });
+            
+            // Step 3: Escape HTML
+            result = escapeHtml(result);
+            
+            // Step 4: Process paragraphs
+            const paragraphs = result.split('\n\n');
+            const formattedParagraphs = paragraphs.map(p => {
+                const trimmed = p.trim();
+                if (!trimmed) return '';
+                
+                if (trimmed.includes('__CODE_BLOCK_')) {
+                    return trimmed;
+                }
+                
+                const withBreaks = trimmed.replace(/\n/g, '<br>');
+                return `<p>${withBreaks}</p>`;
+            });
+            
+            result = formattedParagraphs.join('\n\n');
+            
+            // Step 5: Restore code blocks
+            for (let i = 0; i < codeBlocks.length; i++) {
+                result = result.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
+            }
+            
+            // Step 6: Restore inline code
+            for (let i = 0; i < inlineCodes.length; i++) {
+                result = result.replace(`__INLINE_CODE_${i}__`, inlineCodes[i]);
+            }
+            
+            return result;
+        }
+
+        // Test the formatting
+        document.getElementById('test-container').innerHTML = formatAnswer(testCode);
+        
+        // Trigger syntax highlighting
+        setTimeout(() => {
+            document.querySelectorAll('pre code').forEach(el => {
+                if (!el.className.includes('language-')) {
+                    el.className += ' language-cpp';
+                }
+                Prism.highlightElement(el);
+            });
+        }, 100);
+    </script>
+</body>
+</html>
