@@ -30,10 +30,14 @@ impl GroqClient {
                 if let Ok(profile) = serde_json::from_str::<serde_json::Value>(&content) {
                     Self::format_profile(&profile)
                 } else {
+                    eprintln!("⚠️  WARNING: profile.json is invalid JSON. Profile features disabled.");
                     String::new()
                 }
             }
-            Err(_) => String::new(),
+            Err(_) => {
+                eprintln!("⚠️  WARNING: profile.json not found. Profile features disabled.");
+                String::new()
+            },
         }
     }
     
@@ -161,8 +165,49 @@ impl GroqClient {
     }
     
     pub async fn chat_with_history(&self, _message: &str, history: &[ConversationMessage]) -> Result<String, String> {
+        let last_msg = history.last().map(|m| m.content.to_lowercase()).unwrap_or_default();
+        let is_multithreading = last_msg.contains("thread") || last_msg.contains("concurren") || 
+                                last_msg.contains("mutex") || last_msg.contains("lock") || 
+                                last_msg.contains("race condition") || last_msg.contains("deadlock") ||
+                                last_msg.contains("synchroniz") || last_msg.contains("parallel");
+        let is_system_design = last_msg.contains("design") && (last_msg.contains("system") || 
+                                last_msg.contains("architect") || last_msg.contains("scale"));
+        
         let system_prompt = if self.user_profile.is_empty() {
-            "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:
+            if is_multithreading {
+                "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:
+
+- Thread safety mechanisms (mutexes, semaphores, locks)
+- Race conditions and how to prevent them
+- Deadlock scenarios and prevention strategies
+- Synchronization primitives (monitors, condition variables)
+- Thread lifecycle and management
+- Concurrent data structures
+- Producer-consumer patterns
+- Read-write locks and atomic operations
+
+Provide practical examples with code snippets. Be conversational and direct. Never mention you are an AI.".to_string()
+            } else if is_system_design {
+                "You are a candidate in a technical interview answering system design questions. Provide:
+
+1. High-level architecture description
+2. Component breakdown with responsibilities
+3. Data flow and communication patterns
+4. Scalability considerations
+5. Technology choices with justification
+6. ASCII diagram representation when helpful
+
+Use simple text diagrams like:
+```
+[Client] --> [Load Balancer] --> [App Servers]
+                                      |
+                                      v
+                                 [Database]
+```
+
+Be conversational and direct. Never mention you are an AI.".to_string()
+            } else {
+                "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:
 
 - For OOP/OOPS: Explain Object-Oriented Programming principles
 - For DBMS: Discuss Database Management Systems concepts
@@ -171,14 +216,44 @@ impl GroqClient {
 - For System Design: Explain architecture patterns
 
 Be conversational and direct. Never mention you are an AI or assistant.".to_string()
+            }
         } else {
-            format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer all questions as this person. Use first person (I, my, me). When asked about yourself, projects, or experience, refer to the profile above. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
+            if is_multithreading {
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions as this person. Focus on:
+
+- Thread safety mechanisms (mutexes, semaphores, locks)
+- Race conditions and how to prevent them
+- Deadlock scenarios and prevention strategies
+- Synchronization primitives
+- Concurrent data structures
+- Producer-consumer patterns
+
+Provide practical examples with code. Use first person (I, my, me). Never say you are an AI.", self.user_profile)
+            } else if is_system_design {
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions as this person. Provide:
+
+1. High-level architecture description
+2. Component breakdown
+3. Data flow patterns
+4. Scalability considerations
+5. ASCII diagram representation:
+```
+[Client] --> [Load Balancer] --> [Servers]
+                                      |
+                                      v
+                                 [Database]
+```
+
+Use first person (I, my, me). Never say you are an AI.", self.user_profile)
+            } else {
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer all questions as this person. Use first person (I, my, me). When asked about yourself, projects, or experience, refer to the profile above. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
 - For OOP/OOPS: Explain Object-Oriented Programming principles
 - For DBMS: Discuss Database Management Systems concepts
 - For DSA: Explain Data Structures and Algorithms
 - For OS: Discuss Operating Systems concepts
 
 Be conversational and natural like a real candidate.", self.user_profile)
+            }
         };
         
         let mut messages = vec![json!({
@@ -224,16 +299,14 @@ Be conversational and natural like a real candidate.", self.user_profile)
     }
     
     pub async fn analyze_image(&self, image_base64: &str, history: &[ConversationMessage]) -> Result<(String, bool), String> {
-        let system_prompt = if self.user_profile.is_empty() {
-            "You are a technical interview assistant. Analyze this screenshot. If it contains a coding/programming problem, respond with 'CODING_PROBLEM:' followed by the problem description. Otherwise, provide a brief explanation.".to_string()
-        } else {
-            format!("You are a technical interview assistant helping this candidate:\n\n{}\n\nAnalyze this screenshot. If it contains a coding/programming problem, respond with 'CODING_PROBLEM:' followed by the problem description. Otherwise, provide a brief explanation.", self.user_profile)
-        };
+        let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
+        
+        let system_prompt = "You are Scout, a technical interview vision assistant. Extract information from this screenshot in JSON format.\n\nFirst, identify the TYPE:\n- DSA_PROBLEM: Coding problem (LeetCode/HackerRank style) with input/output examples\n- SYSTEM_DESIGN: Architecture/design question\n- LOGICAL_PUZZLE: Text-based reasoning problem\n- DEBUG_ERROR: Code with error messages\n- GENERAL: Other technical content\n\nFor DSA_PROBLEM, extract:\n{\n  \"type\": \"DSA_PROBLEM\",\n  \"title\": \"problem name\",\n  \"description\": \"full problem statement\",\n  \"input_format\": \"how input is given\",\n  \"output_format\": \"expected output format\",\n  \"constraints\": [\"list of constraints\"],\n  \"examples\": [{\"input\": \"...\", \"output\": \"...\", \"explanation\": \"...\"}],\n  \"confidence\": 0.95\n}\n\nFor SYSTEM_DESIGN:\n{\n  \"type\": \"SYSTEM_DESIGN\",\n  \"question\": \"design question\",\n  \"requirements\": [\"list of requirements\"],\n  \"confidence\": 0.90\n}\n\nFor DEBUG_ERROR:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"code\": \"extracted code only\",\n  \"error_message\": \"error text\",\n  \"confidence\": 0.85\n}\n\nFor GENERAL:\n{\n  \"type\": \"GENERAL\",\n  \"content\": \"description of screenshot\",\n  \"confidence\": 0.80\n}\n\nIMPORTANT:\n- Extract ALL visible text accurately\n- Include confidence score (0.0-1.0)\n- If confidence < 0.7, set \"needs_recapture\": true\n- Ignore UI elements, focus on problem content\n- Return ONLY valid JSON, no extra text";
         
         let mut context = String::new();
-        if !history.is_empty() {
-            context.push_str("\n\nRecent conversation:\n");
-            for msg in history {
+        if !recent_history.is_empty() {
+            context.push_str("\n\nRecent conversation (last 20 messages):\n");
+            for msg in recent_history {
                 context.push_str(&format!("{}: {}\n", msg.role, msg.content));
             }
         }
@@ -277,56 +350,34 @@ Be conversational and natural like a real candidate.", self.user_profile)
             .unwrap_or("")
             .to_string();
         
-        let is_coding = content.starts_with("CODING_PROBLEM:");
-        Ok((content, is_coding))
+        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) {
+            let problem_type = parsed["type"].as_str().unwrap_or("GENERAL");
+            let confidence = parsed["confidence"].as_f64().unwrap_or(1.0);
+            let needs_recapture = parsed["needs_recapture"].as_bool().unwrap_or(false);
+            
+            if needs_recapture || confidence < 0.7 {
+                return Ok((format!("{{\"needs_recapture\": true, \"reason\": \"Low confidence ({:.0}%). Please recapture with better quality.\"}}", confidence * 100.0), false));
+            }
+            
+            let is_coding = problem_type == "DSA_PROBLEM";
+            Ok((content, is_coding))
+        } else {
+            let is_coding = content.contains("CODING_PROBLEM:");
+            Ok((content, is_coding))
+        }
     }
     
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
-        let system_prompt = if self.user_profile.is_empty() {
-            "You are a technical interview assistant solving coding problems. Provide 2 solutions in this exact format:
-
-## Brute Force Approach
-```python
-# code here
-```
-**Time Complexity:** O(n)
-**Space Complexity:** O(1)
-
-## Optimal Approach
-```python
-# code here
-```
-**Time Complexity:** O(n)
-**Space Complexity:** O(1)
-
-Keep code concise and well-commented.".to_string()
-        } else {
-            format!("You are a technical interview assistant helping this candidate:\n\n{}\n\nSolve the coding problem with 2 solutions in this exact format:
-
-## Brute Force Approach
-```python
-# code here
-```
-**Time Complexity:** O(n)
-**Space Complexity:** O(1)
-
-## Optimal Approach
-```python
-# code here
-```
-**Time Complexity:** O(n)
-**Space Complexity:** O(1)
-
-Keep code concise.", self.user_profile)
-        };
+        let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
+        
+        let system_prompt = "You are a technical interview coding expert. Solve problems using C++ with this EXACT format:\n\nPROBLEM UNDERSTANDING\n[Brief explanation of what the problem asks]\n\nBRUTE FORCE APPROACH\nExplanation: [How brute force works]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n\n```cpp\n// Brute force C++ code with clear comments\n// Each line should be properly indented\nclass Solution {\npublic:\n    // Function implementation here\n};\n```\n\nOPTIMAL APPROACH\nExplanation: [How optimal solution works, why it's better]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n\n```cpp\n// Optimal C++ code with clear comments\n// Each line should be properly indented\nclass Solution {\npublic:\n    // Function implementation here\n};\n```\n\nIMPORTANT: \n- Use proper C++ indentation (4 spaces per level)\n- Include complete class structure\n- Add meaningful comments\n- Ensure code is properly formatted with line breaks\n- Use standard LeetCode-style class structure";
         
         let mut messages = vec![json!({
             "role": "system",
             "content": system_prompt
         })];
         
-        // Add ALL conversation history for full context
-        for msg in history {
+        for msg in recent_history {
             messages.push(json!({
                 "role": msg.role,
                 "content": msg.content
@@ -341,37 +392,47 @@ Keep code concise.", self.user_profile)
         let payload = json!({
             "model": "openai/gpt-oss-120b",
             "messages": messages,
-            "temperature": 0.3,
-            "max_tokens": 3000
+            "temperature": 0.4,
+            "max_tokens": 18801,
+            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
-        let response = self.client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        
-        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        
-        Ok(content)
+        let mut retries = 0;
+        loop {
+            match self.client
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                        let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                        return Ok(content);
+                    } else if response.status().is_server_error() && retries < 3 {
+                        retries += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        continue;
+                    } else {
+                        return Err(format!("API error: {}", response.status()));
+                    }
+                }
+                Err(e) if retries < 3 => {
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
     }
     
     pub async fn debug_code_error(&self, image_base64: &str, history: &[ConversationMessage]) -> Result<String, String> {
-        // Step 1: Use Scout to extract error details from image
-        let vision_prompt = "Extract the code and error message from this screenshot. Describe:
-1. The programming language
-2. The exact error message shown
-3. The code that has the error
-4. Any stack trace or line numbers
-
-Be detailed and precise.";
+        let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
+        
+        let vision_prompt = "Extract code and error from this screenshot in JSON format:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"language\": \"C++/Python/Java\",\n  \"code\": \"extracted code only, ignore UI\",\n  \"error_message\": \"exact error text\",\n  \"test_case_info\": \"if TLE or wrong output\",\n  \"confidence\": 0.90\n}\n\nIMPORTANT: Extract ONLY the code, ignore buttons, menus, UI elements. Return valid JSON only.";
         
         let vision_payload = json!({
             "model": "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -412,34 +473,24 @@ Be detailed and precise.";
             .to_string();
         
         // Step 2: Use GPT-OSS-120B to provide fix
-        let system_prompt = if self.user_profile.is_empty() {
-            "You are a technical interview assistant and code debugging expert. Provide precise fixes for code errors.".to_string()
-        } else {
-            format!("You are a technical interview assistant helping this candidate:\n\n{}\n\nProvide precise fixes for code errors.", self.user_profile)
-        };
+        let system_prompt = "You are a technical interview C++ debugging expert. Provide precise fixes.";
         
-        let debug_prompt = format!("Based on this error analysis:\n\n{}\n\nProvide the fix in this format:
-
-## Error Identified
-[Brief explanation]
-
-## Fix Required
-[Specific changes needed]
-
-## Corrected Code
-```language
-// Fixed code with comments
-```
-
-Be concise and precise.", error_description);
+        let mut context = String::new();
+        if !recent_history.is_empty() {
+            context.push_str("\n\nRecent conversation (last 20 messages):\n");
+            for msg in &recent_history {
+                context.push_str(&format!("{}: {}\n", msg.role, msg.content));
+            }
+        }
+        
+        let debug_prompt = format!("Error analysis:\n{}\n{}\n\nProvide fix in this format:\n\nERROR IDENTIFIED\n[Brief explanation]\n\nFIX REQUIRED\n[Specific changes needed]\n\nCORRECTED CODE\n```cpp\n// Fixed C++ code with proper indentation\n// Each line should be properly formatted\nclass Solution {{\npublic:\n    // Corrected function implementation\n}};\n```\n\nIMPORTANT: \n- Use proper C++ indentation (4 spaces per level)\n- Include complete corrected code\n- Add comments explaining the fix\n- Ensure code is properly formatted with line breaks", error_description, context);
         
         let mut messages = vec![json!({
             "role": "system",
             "content": system_prompt
         })];
         
-        // Add ALL conversation history for full context
-        for msg in history {
+        for msg in &recent_history {
             messages.push(json!({
                 "role": msg.role,
                 "content": msg.content
@@ -454,26 +505,41 @@ Be concise and precise.", error_description);
         let payload = json!({
             "model": "openai/gpt-oss-120b",
             "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 2000
+            "temperature": 0.4,
+            "max_tokens": 18801,
+            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
-        let response = self.client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        
-        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-        
-        Ok(content)
+        let mut retries = 0;
+        loop {
+            match self.client
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                        let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                        return Ok(content);
+                    } else if response.status().is_server_error() && retries < 3 {
+                        retries += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        continue;
+                    } else {
+                        return Err(format!("API error: {}", response.status()));
+                    }
+                }
+                Err(e) if retries < 3 => {
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
     }
     
     pub async fn analyze_codebase_with_question(&self, question: &str, codebase_files: Vec<(String, String)>, history: &[ConversationMessage]) -> Result<String, String> {
@@ -509,8 +575,9 @@ Be concise and precise.", error_description);
         let payload = json!({
             "model": "openai/gpt-oss-120b",
             "messages": messages,
-            "temperature": 0.2,
-            "max_tokens": 4000
+            "temperature": 0.4,
+            "max_tokens": 18801,
+            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
         let response = self.client

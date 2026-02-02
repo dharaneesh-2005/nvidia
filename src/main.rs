@@ -65,7 +65,7 @@ async fn send_or_buffer(tx: &broadcast::Sender<String>, msg: String, buffer: &Me
 async fn main() {
     tracing_subscriber::fmt::init();
     
-    info!("Starting Interview Helper...");
+    info!("Starting Nvidia...");
     
     let config = Config::load().expect("Failed to load config");
     let (tx, _rx) = broadcast::channel(100);
@@ -191,6 +191,67 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                 send_or_buffer(&tx_clone, serde_json::json!({
                                                     "type": "answer",
                                                     "text": format!("Error: {}", e)
+                                                }).to_string(), &buffer, &connected).await;
+                                            }
+                                        }
+                                    });
+                                }
+                            } else if msg_type == "mic_audio" {
+                                let audio_base64 = json.get("audio").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                if !audio_base64.is_empty() {
+                                    let tx_clone = state.tx.clone();
+                                    let groq = state.groq.clone();
+                                    let conversation = state.conversation.clone();
+                                    let buffer = state.message_buffer.clone();
+                                    let connected = state.client_connected.clone();
+                                    tokio::spawn(async move {
+                                        send_or_buffer(&tx_clone, serde_json::json!({
+                                            "type": "transcription",
+                                            "text": "Processing microphone audio..."
+                                        }).to_string(), &buffer, &connected).await;
+
+                                        match base64::decode(&audio_base64) {
+                                            Ok(audio_data) => {
+                                                match groq.transcribe(&audio_data).await {
+                                                    Ok(transcription) => {
+                                                        let text = transcription.trim();
+                                                        if !text.is_empty() {
+                                                            send_or_buffer(&tx_clone, serde_json::json!({
+                                                                "type": "transcription",
+                                                                "text": text
+                                                            }).to_string(), &buffer, &connected).await;
+
+                                                            let history = conversation.read().await.clone();
+                                                            match groq.chat_with_history(text, &history).await {
+                                                                Ok(answer) => {
+                                                                    conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: text.to_string() });
+                                                                    conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: answer.clone() });
+                                                                    send_or_buffer(&tx_clone, serde_json::json!({
+                                                                        "type": "answer",
+                                                                        "text": answer
+                                                                    }).to_string(), &buffer, &connected).await;
+                                                                },
+                                                                Err(e) => {
+                                                                    send_or_buffer(&tx_clone, serde_json::json!({
+                                                                        "type": "answer",
+                                                                        "text": format!("Error: {}", e)
+                                                                    }).to_string(), &buffer, &connected).await;
+                                                                }
+                                                            }
+                                                        }
+                                                    },
+                                                    Err(e) => {
+                                                        send_or_buffer(&tx_clone, serde_json::json!({
+                                                            "type": "answer",
+                                                            "text": format!("Transcription error: {}", e)
+                                                        }).to_string(), &buffer, &connected).await;
+                                                    }
+                                                }
+                                            },
+                                            Err(e) => {
+                                                send_or_buffer(&tx_clone, serde_json::json!({
+                                                    "type": "answer",
+                                                    "text": format!("Audio decode error: {}", e)
                                                 }).to_string(), &buffer, &connected).await;
                                             }
                                         }
@@ -402,23 +463,96 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
     let history = conversation.read().await.clone();
     
     match groq.analyze_image(&image_data, &history).await {
-        Ok((analysis, is_coding)) => {
-            info!("✓ Screenshot analyzed - Coding problem: {}", is_coding);
+        Ok((analysis, _is_coding)) => {
+            info!("Raw analysis from Scout: {}", &analysis[..analysis.len().min(200)]);
+            
+            let cleaned_analysis = analysis
+                .trim()
+                .strip_prefix("```json")
+                .or_else(|| analysis.trim().strip_prefix("```"))
+                .unwrap_or(analysis.trim())
+                .strip_suffix("```")
+                .unwrap_or(analysis.trim())
+                .trim();
+            
+            info!("Cleaned analysis (first 300 chars): {}", &cleaned_analysis[..cleaned_analysis.len().min(300)]);
+            
+            let mut is_coding = false;
+            let mut problem_type_str = String::from("GENERAL");
+            
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+                info!("Successfully parsed JSON");
+                if parsed["needs_recapture"].as_bool().unwrap_or(false) {
+                    let reason = parsed["reason"].as_str().unwrap_or("Low confidence. Please recapture.");
+                    send_or_buffer(tx, serde_json::json!({
+                        "type": "recapture_needed",
+                        "message": reason
+                    }).to_string(), &buffer, &connected).await;
+                    return;
+                }
+                
+                problem_type_str = parsed["type"].as_str().unwrap_or("GENERAL").to_string();
+                info!("Problem type from JSON: {}", problem_type_str);
+                is_coding = problem_type_str == "DSA_PROBLEM";
+            } else {
+                info!("Failed to parse as JSON, checking if contains DSA_PROBLEM type");
+                if cleaned_analysis.contains("\"type\": \"DSA_PROBLEM\"") || cleaned_analysis.contains("'type': 'DSA_PROBLEM'") {
+                    info!("Found DSA_PROBLEM in text, treating as coding problem");
+                    is_coding = true;
+                    problem_type_str = String::from("DSA_PROBLEM");
+                } else if cleaned_analysis.contains("\"type\": \"SYSTEM_DESIGN\"") {
+                    problem_type_str = String::from("SYSTEM_DESIGN");
+                }
+            }
+            
+            info!("✓ Screenshot analyzed - Problem type: {}", problem_type_str);
             
             let final_answer = if is_coding {
-                // Extract problem description
-                let problem = analysis.strip_prefix("CODING_PROBLEM:").unwrap_or(&analysis).trim();
+                info!("Detected DSA_PROBLEM, formatting data for OSS-120B...");
+                let problem_data = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+                    let mut formatted = String::new();
+                    formatted.push_str(&format!("Problem: {}\n\n", parsed["title"].as_str().unwrap_or("Coding Problem")));
+                    formatted.push_str(&format!("Description:\n{}\n\n", parsed["description"].as_str().unwrap_or("")));
+                    formatted.push_str(&format!("Input Format: {}\n", parsed["input_format"].as_str().unwrap_or("")));
+                    formatted.push_str(&format!("Output Format: {}\n\n", parsed["output_format"].as_str().unwrap_or("")));
+                    if let Some(constraints) = parsed["constraints"].as_array() {
+                        formatted.push_str("Constraints:\n");
+                        for c in constraints {
+                            if let Some(s) = c.as_str() {
+                                formatted.push_str(&format!("- {}\n", s));
+                            }
+                        }
+                        formatted.push_str("\n");
+                    }
+                    if let Some(examples) = parsed["examples"].as_array() {
+                        formatted.push_str("Examples:\n");
+                        for (i, ex) in examples.iter().enumerate() {
+                            formatted.push_str(&format!("Example {}:\n", i + 1));
+                            formatted.push_str(&format!("Input: {}\n", ex["input"].as_str().unwrap_or("")));
+                            formatted.push_str(&format!("Output: {}\n", ex["output"].as_str().unwrap_or("")));
+                            if let Some(exp) = ex["explanation"].as_str() {
+                                formatted.push_str(&format!("Explanation: {}\n", exp));
+                            }
+                            formatted.push_str("\n");
+                        }
+                    }
+                    info!("Formatted problem data: {} chars", formatted.len());
+                    formatted
+                } else {
+                    info!("Failed to parse JSON, using raw analysis");
+                    analysis.strip_prefix("CODING_PROBLEM:").unwrap_or(&analysis).trim().to_string()
+                };
                 
-                // Add to conversation
                 conversation.write().await.push(ConversationMessage {
                     role: "user".to_string(),
-                    content: format!("[Screenshot: Coding Problem] {}", problem),
+                    content: format!("[Screenshot: Coding Problem]\n{}", problem_data),
                 });
                 
-                info!("Solving coding problem with GPT-OSS-120B...");
+                info!("Calling solve_coding_problem with GPT-OSS-120B...");
                 let history = conversation.read().await.clone();
-                match groq.solve_coding_problem(problem, &history).await {
+                match groq.solve_coding_problem(&problem_data, &history).await {
                     Ok(solution) => {
+                        info!("✓ Solution received: {} chars", solution.len());
                         conversation.write().await.push(ConversationMessage {
                             role: "assistant".to_string(),
                             content: solution.clone(),
@@ -431,16 +565,85 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
                     }
                 }
             } else {
-                // Non-coding screenshot
-                conversation.write().await.push(ConversationMessage {
-                    role: "user".to_string(),
-                    content: "[Screenshot captured]".to_string(),
-                });
-                conversation.write().await.push(ConversationMessage {
-                    role: "assistant".to_string(),
-                    content: analysis.clone(),
-                });
-                analysis
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+                    let problem_type = parsed["type"].as_str().unwrap_or("GENERAL");
+                    
+                    match problem_type {
+                        "SYSTEM_DESIGN" => {
+                            let question = parsed["question"].as_str().unwrap_or("System design question");
+                            let requirements = if let Some(reqs) = parsed["requirements"].as_array() {
+                                reqs.iter().filter_map(|r| r.as_str()).collect::<Vec<_>>().join("\n- ")
+                            } else {
+                                String::new()
+                            };
+                            
+                            let formatted = format!("System Design Question:\n{}\n\nRequirements:\n- {}\n", question, requirements);
+                            
+                            conversation.write().await.push(ConversationMessage {
+                                role: "user".to_string(),
+                                content: format!("[Screenshot: System Design]\n{}", formatted),
+                            });
+                            
+                            info!("Answering system design question with GPT-OSS-120B...");
+                            let history = conversation.read().await.clone();
+                            match groq.solve_coding_problem(&formatted, &history).await {
+                                Ok(answer) => {
+                                    conversation.write().await.push(ConversationMessage {
+                                        role: "assistant".to_string(),
+                                        content: answer.clone(),
+                                    });
+                                    answer
+                                }
+                                Err(e) => format!("Error: {}", e)
+                            }
+                        }
+                        "LOGICAL_PUZZLE" | "GENERAL" => {
+                            let content = parsed["content"].as_str()
+                                .or_else(|| parsed["question"].as_str())
+                                .or_else(|| parsed["description"].as_str())
+                                .unwrap_or("General question");
+                            
+                            conversation.write().await.push(ConversationMessage {
+                                role: "user".to_string(),
+                                content: format!("[Screenshot: {}]\n{}", problem_type, content),
+                            });
+                            
+                            info!("Answering {} with GPT-OSS-120B...", problem_type);
+                            let history = conversation.read().await.clone();
+                            match groq.solve_coding_problem(content, &history).await {
+                                Ok(answer) => {
+                                    conversation.write().await.push(ConversationMessage {
+                                        role: "assistant".to_string(),
+                                        content: answer.clone(),
+                                    });
+                                    answer
+                                }
+                                Err(e) => format!("Error: {}", e)
+                            }
+                        }
+                        _ => {
+                            conversation.write().await.push(ConversationMessage {
+                                role: "user".to_string(),
+                                content: "[Screenshot captured]".to_string(),
+                            });
+                            conversation.write().await.push(ConversationMessage {
+                                role: "assistant".to_string(),
+                                content: cleaned_analysis.to_string(),
+                            });
+                            cleaned_analysis.to_string()
+                        }
+                    }
+                } else {
+                    conversation.write().await.push(ConversationMessage {
+                        role: "user".to_string(),
+                        content: "[Screenshot captured]".to_string(),
+                    });
+                    conversation.write().await.push(ConversationMessage {
+                        role: "assistant".to_string(),
+                        content: analysis.clone(),
+                    });
+                    analysis
+                }
             };
             
             send_or_buffer(tx, serde_json::json!({

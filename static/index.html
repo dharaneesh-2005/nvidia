@@ -3,8 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Interview Helper</title>
+    <title>Nvidia</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link href="/static/css/search.css" rel="stylesheet" />
     <style>
         * {
@@ -101,6 +102,23 @@
             border-color: rgba(231, 76, 60, 0.5);
         }
         
+        .btn-mic {
+            background: rgba(52, 152, 219, 0.3);
+            border-color: rgba(52, 152, 219, 0.5);
+            position: relative;
+        }
+        
+        .btn-mic.recording {
+            background: rgba(231, 76, 60, 0.5);
+            border-color: rgba(231, 76, 60, 0.7);
+            animation: pulse 1.5s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
         .chat-container {
             flex: 1;
             overflow-y: auto;
@@ -157,6 +175,9 @@
             max-width: 100%;
             overflow-x: auto;
         }
+        .heading1 { font-size: 1.5em; font-weight: 700; margin: 0.8em 0; }
+        .heading2 { font-size: 1.3em; font-weight: 600; margin: 0.7em 0; }
+        .heading3 { font-size: 1.1em; font-weight: 500; margin: 0.6em 0; }
         
         .msg-content p {
             margin: 8px 0;
@@ -187,24 +208,41 @@
             margin: 4px 0;
         }
         
-        .loading::after {
-            content: '...';
-            animation: dots 1.5s steps(4, end) infinite;
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-style: italic;
+            opacity: 0.9;
         }
         
-        @keyframes dots {
-            0%, 20% { content: '.'; }
-            40% { content: '..'; }
-            60%, 100% { content: '...'; }
+        .loading::after {
+            content: '';
+            display: inline-block;
+            width: 4px;
+            height: 4px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: loadingDots 1.4s infinite;
+        }
+        
+        @keyframes loadingDots {
+            0%, 20% { box-shadow: 8px 0 0 currentColor, 16px 0 0 currentColor; }
+            40% { box-shadow: 8px 0 0 transparent, 16px 0 0 currentColor; }
+            60% { box-shadow: 8px 0 0 currentColor, 16px 0 0 transparent; }
+            80%, 100% { box-shadow: 8px 0 0 currentColor, 16px 0 0 currentColor; }
         }
         
         .code-block {
-            margin: 10px 0;
+            margin: 12px 0;
             border-radius: 8px;
             overflow: hidden;
             background: rgba(20, 20, 30, 0.95);
-            font-size: 13px;
+            font-size: 12px;
             border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 100%;
+            display: block;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
         }
         
         .code-header {
@@ -238,31 +276,46 @@
             background: rgba(16, 163, 127, 0.6);
         }
         
-        pre[class*="language-"] {
+        pre[class*="language-"], pre code {
             margin: 0 !important;
             background: rgba(20, 20, 30, 0.95) !important;
-            padding: 10px !important;
-            max-height: 200px;
-            overflow: auto;
+            padding: 12px !important;
+            max-height: 400px;
+            overflow-x: auto;
+            overflow-y: auto;
             -webkit-overflow-scrolling: touch;
-            max-width: 100%;
+            width: 100%;
+            white-space: pre !important;
+            word-break: normal !important;
+            word-wrap: normal !important;
+            display: block;
+            font-size: 12px !important;
+            line-height: 1.5 !important;
+            tab-size: 4;
+            -moz-tab-size: 4;
+            border-radius: 0 0 8px 8px;
         }
         
-        code[class*="language-"] {
-            font-family: 'Courier New', monospace !important;
+        code[class*="language-"], pre code {
+            font-family: 'Fira Code', 'Courier New', monospace !important;
             font-size: 12px !important;
             line-height: 1.5 !important;
             color: #e0e0e0 !important;
             text-shadow: none !important;
-            word-wrap: break-word;
-            white-space: pre-wrap;
+            white-space: pre !important;
+            word-break: normal !important;
+            word-wrap: normal !important;
+            overflow: visible;
+            display: block;
+            tab-size: 4;
+            -moz-tab-size: 4;
         }
         
         .msg-content code:not([class*="language-"]) {
             background: rgba(20, 20, 30, 0.9);
             padding: 3px 6px;
             border-radius: 4px;
-            font-family: 'Courier New', monospace;
+            font-family: 'Fira Code', 'Courier New', monospace;
             font-size: 14px;
             color: #e0e0e0;
         }
@@ -318,12 +371,13 @@
     <div class="container">
         <header>
             <div class="header-top">
-                <h1>🎯 Interview Helper</h1>
+                <h1>🎯 Nvidia</h1>
                 <div class="status" id="status">●</div>
             </div>
             <div class="btn-group">
                 <button class="btn" onclick="captureScreen()">📸 Capture</button>
                 <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
+                <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
                 <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
             </div>
         </header>
@@ -343,6 +397,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
     <script src="/static/js/search.js"></script>
+    <!-- Ensure code highlighting after rendering -->
+    <script>
+        // Auto-highlight any newly added code blocks
+        function highlightNewCode() {
+            document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
+                Prism.highlightElement(el);
+                el.classList.add('highlighted');
+            });
+        }
+        // Observe DOM for new code blocks
+        const observer = new MutationObserver(highlightNewCode);
+        observer.observe(document.getElementById('chat'), { childList: true, subtree: true });
+    </script>
     <script>
         let ws;
         let currentAnswer = null;
@@ -352,6 +419,11 @@
         let isConnected = false;
         const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
         const BASE_DELAY = 1000; // 1 second base
+        
+        // Microphone recording state
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
         
         // Restore chat history on load
         window.addEventListener('DOMContentLoaded', () => {
@@ -502,6 +574,8 @@
                 if (searchInput && searchModal.classList.contains('active')) {
                     searchInput.value = searchInput.value.slice(0, -1);
                 }
+            } else if (data.type === 'recapture_needed') {
+                alert(data.message);
             } else if (data.type === 'transcription') {
                 const msg = document.createElement('div');
                 msg.className = 'message';
@@ -512,7 +586,7 @@
                     </div>
                     <div class="msg-a">
                         <div class="msg-label">A</div>
-                        <div class="msg-content"><span class="loading">Thinking</span></div>
+                        <div class="msg-content"><span class="loading">🤔 Thinking (using code interpreter & browser search)</span></div>
                     </div>
                 `;
                 chat.appendChild(msg);
@@ -537,82 +611,132 @@
         }
         
         function formatAnswer(text) {
+            // Enhanced markdown rendering with proper code block handling
             if (!text || text.trim() === '') {
-                return '<p>No response received</p>';
+                return '<p>No response</p>';
             }
             
-            try {
-                const codeBlockRegex = /```(\w+)?\s*\n([\s\S]*?)```/g;
-                const codeBlocks = [];
-                let formatted = text;
+            let result = text;
+            
+            // Step 1: Process code blocks FIRST (before any HTML escaping)
+            const codeBlocks = [];
+            let codeBlockIndex = 0;
+            
+            // Extract and replace code blocks with placeholders
+            result = result.replace(/```([\w]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
+                const placeholder = `__CODE_BLOCK_${codeBlockIndex}__`;
+                const cleanCode = code.replace(/^\n+|\n+$/g, ''); // Remove leading/trailing newlines
+                const langClass = lang ? `language-${lang}` : 'language-text';
+                const displayLang = lang || 'code';
                 
-                let match;
-                while ((match = codeBlockRegex.exec(text)) !== null) {
-                    const lang = match[1] || 'python';
-                    const code = match[2].trim();
-                    const id = 'code-' + Math.random().toString(36).substr(2, 9);
-                    const placeholder = `__CODE_BLOCK_${codeBlocks.length}__`;
-                    codeBlocks.push(`
-                        <div class="code-block">
-                            <div class="code-header">
-                                <span class="code-lang">${escapeHtml(lang)}</span>
-                                <button class="copy-btn" onclick="copyCode('${id}')">Copy</button>
-                            </div>
-                            <pre><code id="${id}" class="language-${escapeHtml(lang)}">${escapeHtml(code)}</code></pre>
-                        </div>
-                    `);
-                    formatted = formatted.replace(match[0], placeholder);
+                codeBlocks[codeBlockIndex] = `<div class="code-block">
+                    <div class="code-header">
+                        <span class="code-lang">${displayLang}</span>
+                        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                    </div>
+                    <pre><code class="${langClass}">${escapeHtml(cleanCode)}</code></pre>
+                </div>`;
+                
+                codeBlockIndex++;
+                return placeholder;
+            });
+            
+            // Step 2: Process inline code (before HTML escaping)
+            const inlineCodes = [];
+            let inlineCodeIndex = 0;
+            
+            result = result.replace(/`([^`\n]+)`/g, (match, code) => {
+                const placeholder = `__INLINE_CODE_${inlineCodeIndex}__`;
+                inlineCodes[inlineCodeIndex] = `<code>${escapeHtml(code)}</code>`;
+                inlineCodeIndex++;
+                return placeholder;
+            });
+            
+            // Step 3: Now escape HTML for the remaining text
+            result = escapeHtml(result);
+            
+            // Step 4: Process markdown formatting
+            // Bold and italic (non-greedy matching)
+            result = result.replace(/\*\*([^*]+?)\*\*/g, '<strong>$1</strong>');
+            result = result.replace(/\*([^*]+?)\*/g, '<em>$1</em>');
+            
+            // Headings
+            result = result.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+            result = result.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+            result = result.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+            
+            // Step 5: Process lists
+            const lines = result.split('\n');
+            const processedLines = [];
+            let inList = false;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const isListItem = /^- (.+)/.test(line);
+                
+                if (isListItem && !inList) {
+                    processedLines.push('<ul>');
+                    inList = true;
                 }
                 
-                formatted = escapeHtml(formatted);
-                formatted = formatted.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-                formatted = formatted.replace(/\*(.+?)\*/g, '<em>$1</em>');
-                formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>');
-                formatted = formatted.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-                formatted = formatted.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-                formatted = formatted.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-                formatted = formatTables(formatted);
-                
-                // Better list handling - wrap consecutive <li> items
-                const lines = formatted.split('\n');
-                let result = [];
-                let inList = false;
-                
-                for (let line of lines) {
-                    if (line.match(/^- (.+)$/)) {
-                        const content = line.substring(2);
-                        if (!inList) {
-                            result.push('<ul>');
-                            inList = true;
-                        }
-                        result.push(`<li>${content}</li>`);
-                    } else {
-                        if (inList) {
-                            result.push('</ul>');
-                            inList = false;
-                        }
-                        result.push(line);
-                    }
+                if (!isListItem && inList) {
+                    processedLines.push('</ul>');
+                    inList = false;
                 }
-                if (inList) result.push('</ul>');
-                formatted = result.join('\n');
                 
-                formatted = formatted.split('\n\n').map(p => {
-                    if (!p.match(/^<[hult]/) && !p.includes('__CODE_BLOCK_')) {
-                        return '<p>' + p.replace(/\n/g, '<br>') + '</p>';
-                    }
-                    return p;
-                }).join('');
-                
-                codeBlocks.forEach((block, i) => {
-                    formatted = formatted.replace(`__CODE_BLOCK_${i}__`, block);
-                });
-                
-                return formatted || '<p>' + escapeHtml(text) + '</p>';
-            } catch (error) {
-                console.error('Format error:', error);
-                return '<p>' + escapeHtml(text) + '</p>';
+                if (isListItem) {
+                    processedLines.push(line.replace(/^- (.+)/, '<li>$1</li>'));
+                } else {
+                    processedLines.push(line);
+                }
             }
+            
+            if (inList) {
+                processedLines.push('</ul>');
+            }
+            
+            result = processedLines.join('\n');
+            
+            // Step 6: Process paragraphs (but preserve code block placeholders)
+            const paragraphs = result.split('\n\n');
+            const formattedParagraphs = paragraphs.map(p => {
+                const trimmed = p.trim();
+                if (!trimmed) return '';
+                
+                // Don't wrap code block placeholders or headings or lists
+                if (trimmed.includes('__CODE_BLOCK_') || 
+                    trimmed.startsWith('<h') || 
+                    trimmed.startsWith('<ul>') || 
+                    trimmed.startsWith('<li>')) {
+                    return trimmed;
+                }
+                
+                // Convert single line breaks to <br> within paragraphs
+                const withBreaks = trimmed.replace(/\n/g, '<br>');
+                return `<p>${withBreaks}</p>`;
+            });
+            
+            result = formattedParagraphs.join('\n\n');
+            
+            // Step 7: Restore code blocks
+            for (let i = 0; i < codeBlocks.length; i++) {
+                result = result.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
+            }
+            
+            // Step 8: Restore inline code
+            for (let i = 0; i < inlineCodes.length; i++) {
+                result = result.replace(`__INLINE_CODE_${i}__`, inlineCodes[i]);
+            }
+            
+            // Step 9: Trigger syntax highlighting
+            setTimeout(() => {
+                document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
+                    Prism.highlightElement(el);
+                    el.classList.add('highlighted');
+                });
+            }, 50);
+            
+            return result;
         }
         
         function formatTables(text) {
@@ -679,10 +803,9 @@
             return result.join('\n');
         }
         
-        function copyCode(id) {
-            const code = document.getElementById(id);
+        function copyCode(btn) {
+            const code = btn.closest('.code-block').querySelector('code');
             navigator.clipboard.writeText(code.textContent).then(() => {
-                const btn = code.closest('.code-block').querySelector('.copy-btn');
                 btn.textContent = 'Copied!';
                 btn.classList.add('copied');
                 setTimeout(() => {
@@ -716,6 +839,64 @@
                 document.getElementById('chat').innerHTML = '';
                 currentAnswer = null;
             }
+        }
+        
+        async function toggleMic() {
+            if (!isRecording) {
+                await startRecording();
+            } else {
+                await stopRecording();
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    audioChunks.push(event.data);
+                };
+                
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    await sendAudioToServer(audioBlob);
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                mediaRecorder.start();
+                isRecording = true;
+                document.getElementById('micBtn').classList.add('recording');
+                document.getElementById('micBtn').textContent = '⏹️ Stop';
+                console.log('Recording started...');
+            } catch (error) {
+                console.error('Microphone access denied:', error);
+                alert('Microphone access denied. Please allow microphone permissions.');
+            }
+        }
+        
+        async function stopRecording() {
+            if (mediaRecorder && isRecording) {
+                mediaRecorder.stop();
+                isRecording = false;
+                document.getElementById('micBtn').classList.remove('recording');
+                document.getElementById('micBtn').textContent = '🎤 Mic';
+                console.log('Recording stopped.');
+            }
+        }
+        
+        async function sendAudioToServer(audioBlob) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                const base64Audio = reader.result.split(',')[1];
+                sendMessage(JSON.stringify({
+                    type: 'mic_audio',
+                    audio: base64Audio
+                }));
+                console.log('Audio sent to server');
+            };
+            reader.readAsDataURL(audioBlob);
         }
         
         connect();

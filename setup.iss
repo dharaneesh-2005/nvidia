@@ -1,10 +1,10 @@
 [Setup]
-AppName=Interview Helper
+AppName=Nvidia
 AppVersion=1.0
-DefaultDirName={autopf}\InterviewHelper
-DefaultGroupName=Interview Helper
+DefaultDirName={autopf}\Nvidia
+DefaultGroupName=Nvidia
 OutputDir=installer
-OutputBaseFilename=InterviewHelper-Setup
+OutputBaseFilename=Nvidia-Setup
 Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=admin
@@ -20,13 +20,13 @@ Source: "config.yml"; DestDir: "{app}"; Flags: ignoreversion
 Source: "credentials.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs
 Source: "start_hidden.bat"; DestDir: "{app}"; Flags: ignoreversion
-Source: "start.vbs"; DestDir: "{app}"; DestName: "InterviewHelper.vbs"; Flags: ignoreversion
+Source: "start.vbs"; DestDir: "{app}"; DestName: "Nvidia.vbs"; Flags: ignoreversion
 Source: "stop.bat"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\Interview Helper"; Filename: "wscript.exe"; Parameters: """{app}\InterviewHelper.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\interview_helper.exe"
-Name: "{group}\Stop Interview Helper"; Filename: "{app}\stop.bat"; WorkingDir: "{app}"
-Name: "{autodesktop}\Interview Helper"; Filename: "wscript.exe"; Parameters: """{app}\InterviewHelper.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\interview_helper.exe"
+Name: "{group}\Nvidia"; Filename: "wscript.exe"; Parameters: """{app}\Nvidia.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\interview_helper.exe"
+Name: "{group}\Stop Nvidia"; Filename: "{app}\stop.bat"; WorkingDir: "{app}"
+Name: "{autodesktop}\Nvidia"; Filename: "wscript.exe"; Parameters: """{app}\Nvidia.vbs"""; WorkingDir: "{app}"; IconFilename: "{app}\interview_helper.exe"
 
 [Run]
-Filename: "wscript.exe"; Parameters: """{app}\InterviewHelper.vbs"""; Description: "Launch Interview Helper"; Flags: postinstall nowait skipifsilent
+Filename: "wscript.exe"; Parameters: """{app}\Nvidia.vbs"""; Description: "Launch Nvidia"; Flags: postinstall nowait skipifsilent
