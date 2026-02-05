@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Nvidia</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/themes/prism-tomorrow.min.css" rel="stylesheet" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link href="/static/css/search.css" rel="stylesheet" />
     <style>
@@ -293,7 +293,7 @@
             background: rgba(16, 163, 127, 0.6);
         }
         
-        pre[class*="language-"], pre code {
+        pre[class*="hljs"], pre code {
             margin: 0 !important;
             background: rgba(20, 20, 30, 0.95) !important;
             padding: 12px !important;
@@ -313,7 +313,7 @@
             border-radius: 0 0 8px 8px;
         }
         
-        code[class*="language-"], pre code {
+        code[class*="hljs"], pre code {
             font-family: 'Fira Code', 'Courier New', monospace !important;
             font-size: 12px !important;
             line-height: 1.5 !important;
@@ -327,7 +327,7 @@
             -moz-tab-size: 4;
         }
         
-        .msg-content code:not([class*="language-"]) {
+        .msg-content code:not(.hljs) {
             background: rgba(20, 20, 30, 0.9);
             padding: 3px 6px;
             border-radius: 4px;
@@ -382,78 +382,66 @@
             border-radius: 2px;
         }
         
-        /* Enhanced Prism.js C++ Syntax Highlighting */
-        .token.comment,
-        .token.prolog,
-        .token.doctype,
-        .token.cdata {
+        /* Enhanced Highlight.js Syntax Highlighting */
+        .hljs {
+            background: rgba(20, 20, 30, 0.95) !important;
+            color: #f8f8f2 !important;
+        }
+        
+        .hljs-comment,
+        .hljs-quote {
             color: #7C7C7C;
         }
         
-        .token.punctuation {
-            color: #c5c8c6;
-        }
-        
-        .token.property,
-        .token.tag,
-        .token.boolean,
-        .token.number,
-        .token.constant,
-        .token.symbol,
-        .token.deleted {
+        .hljs-variable,
+        .hljs-template-variable,
+        .hljs-tag,
+        .hljs-name,
+        .hljs-selector-id,
+        .hljs-selector-class,
+        .hljs-regexp,
+        .hljs-deletion {
             color: #96CBFE;
         }
         
-        .token.selector,
-        .token.attr-name,
-        .token.string,
-        .token.char,
-        .token.builtin,
-        .token.inserted {
+        .hljs-number,
+        .hljs-built_in,
+        .hljs-builtin-name,
+        .hljs-literal,
+        .hljs-type,
+        .hljs-params,
+        .hljs-meta,
+        .hljs-link {
             color: #A8FF60;
         }
         
-        .token.operator,
-        .token.entity,
-        .token.url,
-        .language-css .token.string,
-        .style .token.string {
+        .hljs-attribute {
             color: #EDEDED;
         }
         
-        .token.atrule,
-        .token.attr-value,
-        .token.keyword {
+        .hljs-string,
+        .hljs-symbol,
+        .hljs-bullet,
+        .hljs-addition {
             color: #CFCB90;
         }
         
-        .token.function,
-        .token.class-name {
+        .hljs-title,
+        .hljs-section {
             color: #FFD2A7;
         }
         
-        .token.regex,
-        .token.important,
-        .token.variable {
+        .hljs-keyword,
+        .hljs-selector-tag {
             color: #E0C589;
         }
         
-        /* C++ specific tokens */
-        .token.directive-hash,
-        .token.directive.keyword {
-            color: #9B859D;
-        }
-        
-        .token.macro.property {
-            color: #9B859D;
-        }
-        
         /* Ensure proper contrast in our dark theme */
-        pre[class*="language-"] {
+        pre.hljs {
             background: rgba(20, 20, 30, 0.95) !important;
         }
         
-        code[class*="language-"] {
+        code.hljs {
             background: transparent !important;
         }
     </style>
@@ -476,27 +464,29 @@
         <div class="chat-container" id="chat"></div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/prism.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-python.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-java.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-cpp.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-c.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-rust.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-go.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-typescript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-sql.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.29.0/components/prism-bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/javascript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/java.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/rust.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/go.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
     <script src="/static/js/search.js"></script>
     <!-- Ensure code highlighting after rendering -->
     <script>
+        // Initialize Highlight.js
+        hljs.highlightAll();
+        
         // Auto-highlight any newly added code blocks
         function highlightNewCode() {
-            document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
-                Prism.highlightElement(el);
-                el.classList.add('highlighted');
+            document.querySelectorAll('pre code:not(.hljs)').forEach(el => {
+                hljs.highlightElement(el);
             });
         }
+        
         // Observe DOM for new code blocks
         const observer = new MutationObserver(highlightNewCode);
         observer.observe(document.getElementById('chat'), { childList: true, subtree: true });
@@ -647,8 +637,10 @@
                     openSearchModal();
                 }
             } else if (data.type === 'search_enter') {
+                console.log('🔍 [SEARCH LOG] Search enter event received');
                 if (searchInput && searchModal && searchModal.classList.contains('active')) {
                     const question = searchInput.value.trim();
+                    console.log('🔍 [SEARCH LOG] Question from search input:', question);
                     if (question) {
                         submitManualQuestion(question);
                         searchInput.value = '';
@@ -668,6 +660,7 @@
             } else if (data.type === 'recapture_needed') {
                 alert(data.message);
             } else if (data.type === 'transcription') {
+                console.log('🔍 [SEARCH LOG] Received transcription from backend:', data.text);
                 const msg = document.createElement('div');
                 msg.className = 'message';
                 msg.innerHTML = `
@@ -685,12 +678,14 @@
                 saveChat();
                 scrollToBottom();
             } else if (data.type === 'answer' && currentAnswer) {
+                console.log('🔍 [SEARCH LOG] Received answer from AI model (length: ' + data.text.length + ')');
+                console.log('🔍 [SEARCH LOG] Answer preview:', data.text.substring(0, 200) + (data.text.length > 200 ? '...' : ''));
                 try {
                     currentAnswer.innerHTML = formatAnswer(data.text);
                     saveChat();
                     setTimeout(() => {
-                        currentAnswer.querySelectorAll('code[class*="language-"]').forEach(el => {
-                            Prism.highlightElement(el);
+                        currentAnswer.querySelectorAll('pre code').forEach(el => {
+                            hljs.highlightElement(el);
                         });
                     }, 50);
                 } catch (error) {
@@ -724,15 +719,36 @@
                     detectedLang = 'cpp';
                 }
                 
-                const langClass = `language-${detectedLang}`;
-                const displayLang = detectedLang === 'cpp' ? 'C++' : (lang || 'code');
+                // Map common language names to highlight.js classes
+                const langMap = {
+                    'c++': 'cpp',
+                    'cpp': 'cpp',
+                    'cxx': 'cpp',
+                    'python': 'python',
+                    'py': 'python',
+                    'javascript': 'javascript',
+                    'js': 'javascript',
+                    'typescript': 'typescript',
+                    'ts': 'typescript',
+                    'java': 'java',
+                    'rust': 'rust',
+                    'go': 'go',
+                    'golang': 'go',
+                    'sql': 'sql',
+                    'bash': 'bash',
+                    'shell': 'bash',
+                    'sh': 'bash'
+                };
+                
+                const langClass = langMap[detectedLang] || 'cpp'; // Default to cpp for interview problems
+                const displayLang = detectedLang === 'cpp' ? 'C++' : (lang || 'Code');
                 
                 codeBlocks[codeBlockIndex] = `<div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">${displayLang}</span>
                         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                     </div>
-                    <pre><code class="${langClass}">${escapeHtml(cleanCode)}</code></pre>
+                    <pre><code class="hljs ${langClass}">${escapeHtml(cleanCode)}</code></pre>
                 </div>`;
                 
                 codeBlockIndex++;
@@ -852,33 +868,28 @@
                 result = result.replace(`__INLINE_CODE_${i}__`, inlineCodes[i]);
             }
             
-            // Step 10: Trigger syntax highlighting with proper timing and fallback
+            // Step 10: Trigger syntax highlighting with Highlight.js
             setTimeout(() => {
-                document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
-                    // Ensure the language class is properly set
-                    if (!el.className.includes('language-')) {
-                        el.className += ' language-cpp';
-                    }
-                    
+                document.querySelectorAll('pre code:not(.hljs)').forEach(el => {
                     try {
-                        Prism.highlightElement(el);
-                        el.classList.add('highlighted');
+                        // Auto-detect language if not specified
+                        hljs.highlightElement(el);
+                        console.log('Highlighted element:', el.className);
                     } catch (error) {
-                        console.warn('Prism highlighting failed:', error);
+                        console.warn('Highlight.js highlighting failed:', error);
                         // Fallback: at least ensure proper formatting
-                        el.classList.add('highlighted');
+                        el.classList.add('hljs');
                     }
                 });
                 
                 // Force re-highlight any remaining unhighlighted code
                 setTimeout(() => {
-                    document.querySelectorAll('pre code:not(.highlighted)').forEach(el => {
-                        el.className = 'language-cpp';
+                    document.querySelectorAll('pre code:not(.hljs)').forEach(el => {
                         try {
-                            Prism.highlightElement(el);
-                            el.classList.add('highlighted');
+                            hljs.highlightElement(el);
                         } catch (e) {
-                            el.classList.add('highlighted');
+                            console.warn('Fallback highlighting failed:', e);
+                            el.classList.add('hljs');
                         }
                     });
                 }, 200);

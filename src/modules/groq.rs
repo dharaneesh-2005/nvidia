@@ -164,7 +164,7 @@ impl GroqClient {
         Err(format!("Failed after {} retries. Last error: {}", max_retries, last_error))
     }
     
-    pub async fn chat_with_history(&self, _message: &str, history: &[ConversationMessage]) -> Result<String, String> {
+    pub async fn chat_with_history(&self, message: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let last_msg = history.last().map(|m| m.content.to_lowercase()).unwrap_or_default();
         let is_multithreading = last_msg.contains("thread") || last_msg.contains("concurren") || 
                                 last_msg.contains("mutex") || last_msg.contains("lock") || 
@@ -268,6 +268,12 @@ Be conversational and natural like a real candidate.", self.user_profile)
                 "content": msg.content
             }));
         }
+        
+        // 🔥 FIX: Add the current message as the latest user message
+        messages.push(json!({
+            "role": "user",
+            "content": message
+        }));
         
         let payload = json!({
             "model": "openai/gpt-oss-20b",

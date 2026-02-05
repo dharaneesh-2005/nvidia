@@ -79,18 +79,24 @@ function closeSearchModal() {
 }
 
 function submitManualQuestion(question) {
+    console.log('🔍 [SEARCH LOG] Submitting manual question:', question);
+    
+    const messagePayload = {
+        type: 'manual_question',
+        text: question,
+        auto_index: false
+    };
+    
+    console.log('🔍 [SEARCH LOG] Message payload:', JSON.stringify(messagePayload, null, 2));
+    
     if (window.sendMessage) {
-        window.sendMessage(JSON.stringify({
-            type: 'manual_question',
-            text: question,
-            auto_index: false
-        }));
+        console.log('🔍 [SEARCH LOG] Sending via window.sendMessage');
+        window.sendMessage(JSON.stringify(messagePayload));
     } else if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'manual_question',
-            text: question,
-            auto_index: false
-        }));
+        console.log('🔍 [SEARCH LOG] Sending via WebSocket');
+        ws.send(JSON.stringify(messagePayload));
+    } else {
+        console.error('🔍 [SEARCH LOG] ERROR: No available connection method');
     }
 }
 

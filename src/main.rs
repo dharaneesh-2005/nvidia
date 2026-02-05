@@ -165,6 +165,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
                             if msg_type == "manual_question" {
                                 let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                info!("🔍 [SEARCH LOG] Received manual_question: '{}'", question);
+                                
                                 if !question.is_empty() {
                                     let tx_clone = state.tx.clone();
                                     let groq = state.groq.clone();
@@ -172,14 +174,37 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let buffer = state.message_buffer.clone();
                                     let connected = state.client_connected.clone();
                                     tokio::spawn(async move {
+                                        info!("🔍 [SEARCH LOG] Processing question: '{}'", question);
+                                        
                                         send_or_buffer(&tx_clone, serde_json::json!({
                                             "type": "transcription",
                                             "text": question
                                         }).to_string(), &buffer, &connected).await;
 
                                         let history = conversation.read().await.clone();
+                                        info!("🔍 [SEARCH LOG] Conversation history length: {}", history.len());
+                                        
+                                        // Log the conversation history for debugging
+                                        for (i, msg) in history.iter().enumerate() {
+                                            let content_preview = if msg.content.chars().count() > 100 {
+                                                format!("{}...", msg.content.chars().take(100).collect::<String>())
+                                            } else {
+                                                msg.content.clone()
+                                            };
+                                            info!("🔍 [SEARCH LOG] History[{}]: {} - '{}'", i, msg.role, content_preview);
+                                        }
+                                        
+                                        info!("🔍 [SEARCH LOG] Sending to AI model: '{}'", question);
                                         match groq.chat_with_history(&question, &history).await {
                                             Ok(answer) => {
+                                                info!("🔍 [SEARCH LOG] AI response received (length: {})", answer.len());
+                                                let answer_preview = if answer.chars().count() > 200 {
+                                                    format!("{}...", answer.chars().take(200).collect::<String>())
+                                                } else {
+                                                    answer.clone()
+                                                };
+                                                info!("🔍 [SEARCH LOG] AI response preview: '{}'", answer_preview);
+                                                
                                                 conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: question.clone() });
                                                 conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: answer.clone() });
                                                 send_or_buffer(&tx_clone, serde_json::json!({
@@ -188,6 +213,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                 }).to_string(), &buffer, &connected).await;
                                             },
                                             Err(e) => {
+                                                error!("🔍 [SEARCH LOG] AI request failed: {}", e);
                                                 send_or_buffer(&tx_clone, serde_json::json!({
                                                     "type": "answer",
                                                     "text": format!("Error: {}", e)
@@ -195,6 +221,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             }
                                         }
                                     });
+                                } else {
+                                    info!("🔍 [SEARCH LOG] Empty question received, ignoring");
                                 }
                             } else if msg_type == "mic_audio" {
                                 let audio_base64 = json.get("audio").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -595,6 +623,45 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
                                     answer
                                 }
                                 Err(e) => format!("Error: {}", e)
+                            }
+                        }
+                        "DEBUG_ERROR" => {
+                            info!("🐛 Detected DEBUG_ERROR, sending to OSS-120B for debugging...");
+                            let error_content = parsed["error_description"].as_str()
+                                .or_else(|| parsed["content"].as_str())
+                                .or_else(|| parsed["description"].as_str())
+                                .unwrap_or("Code debugging request");
+                            
+                            let code_content = parsed["code"].as_str().unwrap_or("");
+                            let error_message = parsed["error_message"].as_str().unwrap_or("");
+                            
+                            let formatted = if !code_content.is_empty() && !error_message.is_empty() {
+                                format!("Debug this code error:\n\nCode:\n```\n{}\n```\n\nError:\n{}\n\nDescription: {}", 
+                                    code_content, error_message, error_content)
+                            } else {
+                                format!("Debug Error Analysis:\n{}", error_content)
+                            };
+                            
+                            conversation.write().await.push(ConversationMessage {
+                                role: "user".to_string(),
+                                content: format!("[Screenshot: Debug Error]\n{}", formatted),
+                            });
+                            
+                            info!("🐛 Sending debug request to GPT-OSS-120B...");
+                            let history = conversation.read().await.clone();
+                            match groq.solve_coding_problem(&formatted, &history).await {
+                                Ok(answer) => {
+                                    info!("✓ Debug solution received: {} chars", answer.len());
+                                    conversation.write().await.push(ConversationMessage {
+                                        role: "assistant".to_string(),
+                                        content: answer.clone(),
+                                    });
+                                    answer
+                                }
+                                Err(e) => {
+                                    error!("Debug solution error: {}", e);
+                                    format!("Error debugging code: {}", e)
+                                }
                             }
                         }
                         "LOGICAL_PUZZLE" | "GENERAL" => {

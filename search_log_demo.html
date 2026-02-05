@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search Logging Demo</title>
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            margin: 0;
+            min-height: 100vh;
+        }
+        
+        .demo-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .demo-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+        }
+        
+        .demo-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #64b5f6;
+        }
+        
+        .instructions {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .step {
+            margin: 10px 0;
+            padding: 5px 0;
+        }
+        
+        .log-viewer {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            margin-top: 15px;
+        }
+        
+        .log-entry {
+            margin: 5px 0;
+            padding: 3px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .log-frontend {
+            color: #64b5f6;
+        }
+        
+        .log-backend {
+            color: #a6e22e;
+        }
+        
+        .log-ai {
+            color: #f8f8f2;
+        }
+        
+        .log-error {
+            color: #f92672;
+        }
+        
+        .clear-btn {
+            background: rgba(231, 76, 60, 0.3);
+            border: 1px solid rgba(231, 76, 60, 0.5);
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <h1>🔍 Search Logging Demo</h1>
+        <p>This page demonstrates the comprehensive logging system for manual search queries.</p>
+        
+        <div class="demo-section">
+            <div class="demo-title">How to Test Search Logging</div>
+            <div class="instructions">
+                <h3>Instructions:</h3>
+                <div class="step">1. Open the main application: <strong>http://localhost:3000/</strong></div>
+                <div class="step">2. Press <strong>Ctrl+Alt+S</strong> to open the search modal</div>
+                <div class="step">3. Type a question like: <strong>"What is 2+2?"</strong></div>
+                <div class="step">4. Press <strong>Enter</strong> to submit</div>
+                <div class="step">5. Check the browser console (F12) and server logs</div>
+            </div>
+        </div>
+        
+        <div class="demo-section">
+            <div class="demo-title">What Gets Logged</div>
+            
+            <h4>🔵 Frontend Logs (Browser Console):</h4>
+            <div class="log-viewer">
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Submitting manual question: What is 2+2?</div>
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Message payload: {
+  "type": "manual_question",
+  "text": "What is 2+2?",
+  "auto_index": false
+}</div>
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Sending via WebSocket</div>
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Received transcription from backend: What is 2+2?</div>
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Received answer from AI model (length: 156)</div>
+                <div class="log-entry log-frontend">🔍 [SEARCH LOG] Answer preview: The answer to 2+2 is 4. This is a basic arithmetic operation where we add two numbers together...</div>
+            </div>
+            
+            <h4>🟢 Backend Logs (Server Console):</h4>
+            <div class="log-viewer">
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] Received manual_question: 'What is 2+2?'</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] Processing question: 'What is 2+2?'</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] Conversation history length: 4</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] History[0]: user - 'Previous question about programming...'</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] History[1]: assistant - 'Previous AI response...'</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] Sending to AI model: 'What is 2+2?'</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] AI response received (length: 156)</div>
+                <div class="log-entry log-backend">🔍 [SEARCH LOG] AI response preview: 'The answer to 2+2 is 4. This is a basic arithmetic operation...'</div>
+            </div>
+        </div>
+        
+        <div class="demo-section">
+            <div class="demo-title">Log Analysis</div>
+            <p><strong>The logs show you:</strong></p>
+            <ul>
+                <li>✅ <strong>Exact question sent:</strong> What the user typed</li>
+                <li>✅ <strong>Message payload:</strong> The JSON structure sent to backend</li>
+                <li>✅ <strong>Conversation history:</strong> Previous messages sent to AI for context</li>
+                <li>✅ <strong>AI model input:</strong> The exact question sent to the AI</li>
+                <li>✅ <strong>AI response:</strong> The full response from the AI model</li>
+                <li>✅ <strong>Timing information:</strong> When each step occurs</li>
+            </ul>
+        </div>
+        
+        <div class="demo-section">
+            <div class="demo-title">Troubleshooting</div>
+            <p><strong>If you don't see the expected question being sent:</strong></p>
+            <ul>
+                <li>🔍 Check if the frontend logs show the correct question</li>
+                <li>🔍 Verify the WebSocket connection is working</li>
+                <li>🔍 Look for any error messages in the logs</li>
+                <li>🔍 Check if the conversation history contains unexpected content</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>

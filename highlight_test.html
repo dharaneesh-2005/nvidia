@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Highlight.js Test</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+    <style>
+        body {
+            background: #1a1a2e;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            margin: 0;
+            min-height: 100vh;
+        }
+        
+        .test-container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        
+        .test-section {
+            margin-bottom: 30px;
+        }
+        
+        .test-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #64b5f6;
+        }
+        
+        .code-block {
+            margin: 12px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: rgba(20, 20, 30, 0.95);
+            font-size: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            width: 100%;
+            display: block;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+        
+        .code-header {
+            background: rgba(15, 15, 25, 0.95);
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .code-lang {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            opacity: 0.8;
+        }
+        
+        .copy-btn {
+            background: rgba(16, 163, 127, 0.3);
+            border: 1px solid rgba(16, 163, 127, 0.5);
+            color: #fff;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        
+        pre {
+            margin: 0;
+            padding: 12px;
+            background: rgba(20, 20, 30, 0.95);
+            border-radius: 0 0 8px 8px;
+            overflow-x: auto;
+        }
+        
+        code {
+            font-family: 'Fira Code', 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>🧪 Highlight.js Syntax Test</h1>
+        
+        <div class="test-section">
+            <div class="test-title">Test 1: C++ with hljs class</div>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">C++</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code class="hljs cpp">#include &lt;iostream>
+#include &lt;vector>
+#include &lt;algorithm>
+
+using namespace std;
+
+class Solution {
+public:
+    vector&lt;int> twoSum(vector&lt;int>& nums, int target) {
+        unordered_map&lt;int, int> map;
+        
+        for (int i = 0; i &lt; nums.size(); i++) {
+            int complement = target - nums[i];
+            
+            if (map.find(complement) != map.end()) {
+                return {map[complement], i};
+            }
+            
+            map[nums[i]] = i;
+        }
+        
+        return {};
+    }
+};
+
+int main() {
+    Solution sol;
+    vector&lt;int> nums = {2, 7, 11, 15};
+    int target = 9;
+    
+    auto result = sol.twoSum(nums, target);
+    
+    cout &lt;&lt; "Result: [" &lt;&lt; result[0] &lt;&lt; ", " &lt;&lt; result[1] &lt;&lt; "]" &lt;&lt; endl;
+    
+    return 0;
+}</code></pre>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">Test 2: Python</div>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">Python</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code class="hljs python">def two_sum(nums, target):
+    """
+    Find two numbers that add up to target
+    """
+    num_map = {}
+    
+    for i, num in enumerate(nums):
+        complement = target - num
+        
+        if complement in num_map:
+            return [num_map[complement], i]
+        
+        num_map[num] = i
+    
+    return []
+
+# Test the function
+nums = [2, 7, 11, 15]
+target = 9
+result = two_sum(nums, target)
+print(f"Result: {result}")</code></pre>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">Test 3: Auto-Detection (no class specified)</div>
+            <div class="code-block">
+                <div class="code-header">
+                    <span class="code-lang">Auto-Detect</span>
+                    <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+                </div>
+                <pre><code>#include &lt;iostream>
+#include &lt;vector>
+
+int main() {
+    std::vector&lt;int> nums = {1, 2, 3, 4, 5};
+    
+    for (const auto& num : nums) {
+        std::cout &lt;&lt; num &lt;&lt; " ";
+    }
+    
+    std::cout &lt;&lt; std::endl;
+    return 0;
+}</code></pre>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/cpp.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+    
+    <script>
+        // Initialize Highlight.js
+        hljs.highlightAll();
+        
+        function copyCode(btn) {
+            const code = btn.closest('.code-block').querySelector('code');
+            navigator.clipboard.writeText(code.textContent).then(() => {
+                btn.textContent = 'Copied!';
+                setTimeout(() => {
+                    btn.textContent = 'Copy';
+                }, 2000);
+            });
+        }
+        
+        // Log available languages
+        console.log('Highlight.js loaded:', !!window.hljs);
+        console.log('Available languages:', hljs.listLanguages());
+        
+        // Re-highlight all code blocks after page load
+        document.addEventListener('DOMContentLoaded', () => {
+            document.querySelectorAll('pre code').forEach((el, index) => {
+                console.log(`Highlighting element ${index}:`, el.className);
+                hljs.highlightElement(el);
+            });
+        });
+    </script>
+</body>
+</html>

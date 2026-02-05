@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[cfg(windows)]
 use winapi::um::winuser::{RegisterHotKey, MOD_CONTROL, MOD_ALT};
@@ -9,7 +10,7 @@ pub struct SearchHotkey {
     keystroke_buffer: Arc<Mutex<String>>,
     enter_pressed: Arc<Mutex<bool>>,
     backspace_pressed: Arc<Mutex<bool>>,
-    deactivate_flag: Arc<Mutex<bool>>,
+    active_flag: Arc<AtomicBool>,
 }
 
 impl SearchHotkey {
@@ -22,8 +23,8 @@ impl SearchHotkey {
         let enter_clone = enter_pressed.clone();
         let backspace_pressed = Arc::new(Mutex::new(false));
         let backspace_clone = backspace_pressed.clone();
-        let deactivate_flag = Arc::new(Mutex::new(false));
-        let deactivate_clone = deactivate_flag.clone();
+        let active_flag = Arc::new(AtomicBool::new(false));
+        let active_clone = active_flag.clone();
         
         println!("[SearchHotkey] Registering Ctrl+Alt+S hotkey");
         
@@ -43,11 +44,10 @@ impl SearchHotkey {
             
             const SEARCH_HOTKEY_ID: i32 = 2;
             static mut KEYBOARD_HOOK: HHOOK = std::ptr::null_mut();
-            static mut SEARCH_ACTIVE: bool = false;
             static mut BUFFER: Option<Arc<Mutex<String>>> = None;
             static mut ENTER_FLAG: Option<Arc<Mutex<bool>>> = None;
             static mut BACKSPACE_FLAG: Option<Arc<Mutex<bool>>> = None;
-            static mut DEACTIVATE_FLAG: Option<Arc<Mutex<bool>>> = None;
+            static mut ACTIVE_FLAG: Option<Arc<AtomicBool>> = None;
             
             unsafe extern "system" fn keyboard_proc(
                 n_code: i32,
@@ -68,7 +68,12 @@ impl SearchHotkey {
                     }
                     
                     // Only capture if search is active
-                    if !SEARCH_ACTIVE {
+                    let active = if let Some(ref flag) = ACTIVE_FLAG {
+                        flag.load(Ordering::SeqCst)
+                    } else {
+                        false
+                    };
+                    if !active {
                         return CallNextHookEx(KEYBOARD_HOOK, n_code, w_param, l_param);
                     }
                     
@@ -78,7 +83,9 @@ impl SearchHotkey {
                             let mut f = flag.lock().unwrap();
                             *f = true;
                         }
-                        SEARCH_ACTIVE = false; // Deactivate after Enter
+                        if let Some(ref flag) = ACTIVE_FLAG {
+                            flag.store(false, Ordering::SeqCst);
+                        }
                         return 1; // Block
                     }
                     
@@ -93,7 +100,9 @@ impl SearchHotkey {
                     
                     // Handle Escape
                     if vk_code == VK_ESCAPE as u32 {
-                        SEARCH_ACTIVE = false; // Deactivate
+                        if let Some(ref flag) = ACTIVE_FLAG {
+                            flag.store(false, Ordering::SeqCst);
+                        }
                         return CallNextHookEx(KEYBOARD_HOOK, n_code, w_param, l_param);
                     }
                     
@@ -124,7 +133,7 @@ impl SearchHotkey {
                 BUFFER = Some(buffer_clone.clone());
                 ENTER_FLAG = Some(enter_clone.clone());
                 BACKSPACE_FLAG = Some(backspace_clone.clone());
-                DEACTIVATE_FLAG = Some(deactivate_clone.clone());
+                ACTIVE_FLAG = Some(active_clone.clone());
                 
                 let result = RegisterHotKey(
                     std::ptr::null_mut(),
@@ -146,22 +155,17 @@ impl SearchHotkey {
                     
                     let mut msg: MSG = std::mem::zeroed();
                     loop {
-                        if let Some(ref flag) = DEACTIVATE_FLAG {
-                            let mut f = flag.lock().unwrap();
-                            if *f {
-                                SEARCH_ACTIVE = false;
-                                *f = false;
-                            }
-                        }
-                        
                         let msg_result = GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0);
                         if msg_result > 0 {
                             if msg.message == WM_HOTKEY && msg.wParam == SEARCH_HOTKEY_ID as usize {
                                 println!("[SearchHotkey] ✓ Search hotkey pressed!");
-                                SEARCH_ACTIVE = !SEARCH_ACTIVE;
+                                if let Some(ref flag) = ACTIVE_FLAG {
+                                    let new_state = !flag.load(Ordering::SeqCst);
+                                    flag.store(new_state, Ordering::SeqCst);
+                                    println!("[SearchHotkey] Search active: {}", new_state);
+                                }
                                 let mut trig = triggered_clone.lock().unwrap();
                                 *trig = true;
-                                println!("[SearchHotkey] Search active: {}", SEARCH_ACTIVE);
                             }
                             TranslateMessage(&msg);
                             DispatchMessageW(&msg);
@@ -174,7 +178,7 @@ impl SearchHotkey {
             }
         });
         
-        Self { triggered, keystroke_buffer, enter_pressed, backspace_pressed, deactivate_flag }
+        Self { triggered, keystroke_buffer, enter_pressed, backspace_pressed, active_flag }
     }
     
     pub fn check_triggered(&mut self) -> bool {
@@ -215,7 +219,6 @@ impl SearchHotkey {
     }
     
     pub fn deactivate(&self) {
-        let mut flag = self.deactivate_flag.lock().unwrap();
-        *flag = true;
+        self.active_flag.store(false, Ordering::SeqCst);
     }
 }
