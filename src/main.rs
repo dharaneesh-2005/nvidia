@@ -7,8 +7,9 @@ use axum::{
     Json, Router,
 };
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
+use std::collections::{VecDeque, HashSet};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::services::ServeDir;
 use tracing::{info, error};
@@ -35,8 +36,9 @@ struct AppState {
     code_manager: Arc<CodeManager>,
     conversation: ConversationHistory,
     message_buffer: MessageBuffer,
-    client_connected: Arc<RwLock<bool>>,
+    client_connections: Arc<AtomicUsize>,
     search_hotkey: Arc<tokio::sync::Mutex<SearchHotkey>>,
+    multi_capture_cancel: Arc<AtomicBool>,
 }
 
 const SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
@@ -49,8 +51,8 @@ const MAX_AUDIO_DURATION: Duration = Duration::from_secs(30);
 const SPEECH_ENERGY_THRESHOLD: f32 = 0.012;
 const MIN_PEAK_ENERGY: f32 = 0.020;
 
-async fn send_or_buffer(tx: &broadcast::Sender<String>, msg: String, buffer: &MessageBuffer, connected: &Arc<RwLock<bool>>) {
-    if *connected.read().await {
+async fn send_or_buffer(tx: &broadcast::Sender<String>, msg: String, buffer: &MessageBuffer, connections: &Arc<AtomicUsize>) {
+    if connections.load(Ordering::SeqCst) > 0 {
         let _ = tx.send(msg);
     } else {
         let mut buf = buffer.write().await;
@@ -75,6 +77,7 @@ async fn main() {
     
     // Start search hotkey listener
     let search_hotkey = Arc::new(tokio::sync::Mutex::new(SearchHotkey::new()));
+    let multi_capture_cancel = Arc::new(AtomicBool::new(false));
     tokio::spawn(start_search_hotkey_listener(tx.clone(), search_hotkey.clone()));
     
     let state = AppState {
@@ -83,18 +86,27 @@ async fn main() {
         code_manager: code_manager.clone(),
         conversation: Arc::new(RwLock::new(Vec::new())),
         message_buffer: Arc::new(RwLock::new(VecDeque::new())),
-        client_connected: Arc::new(RwLock::new(false)),
+        client_connections: Arc::new(AtomicUsize::new(0)),
         search_hotkey: search_hotkey,
+        multi_capture_cancel: multi_capture_cancel.clone(),
     };
     
     // Start audio capture with proper streaming
-    tokio::spawn(start_audio_capture(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connected.clone()));
+    tokio::spawn(start_audio_capture(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
     
     // Start screen capture hotkey listener
-    tokio::spawn(start_screen_capture_hotkey(tx.clone(), groq.clone(), config.hotkey.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connected.clone()));
+    tokio::spawn(start_screen_capture_hotkey(
+        tx.clone(),
+        groq.clone(),
+        config.hotkey.clone(),
+        state.conversation.clone(),
+        state.message_buffer.clone(),
+        state.client_connections.clone(),
+        multi_capture_cancel.clone(),
+    ));
     
     // Start debug hotkey listener
-    tokio::spawn(start_debug_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connected.clone()));
+    tokio::spawn(start_debug_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
     
     // Build web server
     let app = Router::new()
@@ -124,18 +136,32 @@ async fn ws_handler(
     ws.on_upgrade(|socket| handle_socket(socket, state))
 }
 
+struct ConnectionGuard {
+    count: Arc<AtomicUsize>,
+}
+
+impl ConnectionGuard {
+    fn new(count: Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::SeqCst);
+        Self { count }
+    }
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.count.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
 async fn handle_socket(mut socket: WebSocket, state: AppState) {
     let mut rx = state.tx.subscribe();
-    
-    // Mark client as connected
-    *state.client_connected.write().await = true;
+    let _conn_guard = ConnectionGuard::new(state.client_connections.clone());
     
     // Send buffered messages first
     {
         let mut buffer = state.message_buffer.write().await;
         while let Some(msg) = buffer.pop_front() {
             if socket.send(axum::extract::ws::Message::Text(msg)).await.is_err() {
-                *state.client_connected.write().await = false;
                 return;
             }
         }
@@ -146,7 +172,6 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             msg = rx.recv() => {
                 if let Ok(msg) = msg {
                     if socket.send(axum::extract::ws::Message::Text(msg.clone())).await.is_err() {
-                        *state.client_connected.write().await = false;
                         break;
                     }
                 }
@@ -154,12 +179,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             msg = socket.recv() => {
                 if let Some(Ok(axum::extract::ws::Message::Text(text))) = msg {
                     if text == "capture_screen" {
-                        tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connected.clone()));
+                        tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
-                        tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connected.clone()));
+                        tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "search_closed" {
                         let hotkey = state.search_hotkey.lock().await;
                         hotkey.deactivate();
+                    } else if text == "multi_capture_cancel" {
+                        state.multi_capture_cancel.store(true, Ordering::SeqCst);
                     } else if text.starts_with("{") {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
@@ -172,7 +199,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let groq = state.groq.clone();
                                     let conversation = state.conversation.clone();
                                     let buffer = state.message_buffer.clone();
-                                    let connected = state.client_connected.clone();
+                                    let connected = state.client_connections.clone();
                                     tokio::spawn(async move {
                                         info!("🔍 [SEARCH LOG] Processing question: '{}'", question);
                                         
@@ -231,7 +258,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let groq = state.groq.clone();
                                     let conversation = state.conversation.clone();
                                     let buffer = state.message_buffer.clone();
-                                    let connected = state.client_connected.clone();
+                                    let connected = state.client_connections.clone();
                                     tokio::spawn(async move {
                                         send_or_buffer(&tx_clone, serde_json::json!({
                                             "type": "transcription",
@@ -289,14 +316,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         }
                     }
                 } else {
-                    *state.client_connected.write().await = false;
                     break;
                 }
             }
         }
     }
-    
-    *state.client_connected.write().await = false;
 }
 
 async fn get_files(State(state): State<AppState>) -> Json<serde_json::Value> {
@@ -328,7 +352,7 @@ async fn query_code(
     Json(serde_json::json!({ "response": response }))
 }
 
-async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     let (_audio_capture, audio_receiver) = AudioCapture::new();
     
     std::thread::spawn(move || {
@@ -353,10 +377,10 @@ async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient
 
 
 
-async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     match ScreenCapture::capture_now() {
         Ok(image_data) => {
-            process_screenshot(image_data, &groq, &tx, conversation, buffer, connected).await;
+            process_screenshot(vec![image_data], &groq, &tx, conversation, buffer, connected).await;
         }
         Err(e) => {
             error!("Screen capture failed: {}", e);
@@ -364,7 +388,7 @@ async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClie
     }
 }
 
-async fn handle_debug_code(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+async fn handle_debug_code(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     match ScreenCapture::capture_now() {
         Ok(image_data) => {
             process_debug_screenshot(image_data, &groq, &tx, conversation, buffer, connected).await;
@@ -375,13 +399,56 @@ async fn handle_debug_code(tx: broadcast::Sender<String>, groq: Arc<GroqClient>,
     }
 }
 
-async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>) {
     let mut screen_capture = ScreenCapture::new(hotkey);
+    let mut multi_buffer: Vec<String> = Vec::new();
     
     loop {
         tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        if multi_capture_cancel.swap(false, Ordering::SeqCst) {
+            if !multi_buffer.is_empty() {
+                multi_buffer.clear();
+            }
+            let _ = tx.send(serde_json::json!({
+                "type": "multi_capture_update",
+                "count": 0
+            }).to_string());
+            info!("Multi-capture buffer cleared (UI cancel).");
+        }
+        
+        if let Some(image_data) = screen_capture.check_multi_capture() {
+            multi_buffer.push(image_data);
+            let _ = tx.send(serde_json::json!({
+                "type": "multi_capture_update",
+                "count": multi_buffer.len()
+            }).to_string());
+            info!("Multi-capture chunk buffered ({}).", multi_buffer.len());
+        }
+
+        if screen_capture.check_cancel() {
+            if !multi_buffer.is_empty() {
+                multi_buffer.clear();
+                let _ = tx.send(serde_json::json!({
+                    "type": "multi_capture_update",
+                    "count": 0
+                }).to_string());
+            }
+            info!("Multi-capture buffer cleared.");
+        }
+        
         if let Some(image_data) = screen_capture.check_capture() {
-            process_screenshot(image_data, &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+            if !multi_buffer.is_empty() {
+                multi_buffer.push(image_data);
+                let images = std::mem::take(&mut multi_buffer);
+                let _ = tx.send(serde_json::json!({
+                    "type": "multi_capture_update",
+                    "count": 0
+                }).to_string());
+                process_screenshot(images, &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+            } else {
+                process_screenshot(vec![image_data], &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+            }
         }
     }
 }
@@ -421,7 +488,7 @@ async fn start_search_hotkey_listener(tx: broadcast::Sender<String>, search_hotk
     }
 }
 
-async fn start_debug_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+async fn start_debug_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     let mut debug_hotkey = DebugHotkey::new();
     
     loop {
@@ -438,7 +505,242 @@ async fn start_debug_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<Gr
     }
 }
 
-async fn process_debug_screenshot(image_data: String, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
+fn clean_analysis_text(analysis: &str) -> String {
+    analysis
+        .trim()
+        .strip_prefix("```json")
+        .or_else(|| analysis.trim().strip_prefix("```"))
+        .unwrap_or(analysis.trim())
+        .strip_suffix("```")
+        .unwrap_or(analysis.trim())
+        .trim()
+        .to_string()
+}
+
+fn push_unique(parts: &mut Vec<String>, value: Option<&str>) {
+    if let Some(v) = value {
+        let trimmed = v.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+        if !parts.iter().any(|p| p == trimmed) {
+            parts.push(trimmed.to_string());
+        }
+    }
+}
+
+fn merge_cleaned_analyses(cleaned_list: &[String]) -> serde_json::Value {
+    let mut parsed = Vec::new();
+    let mut confidence_values = Vec::new();
+    let mut recapture_reason: Option<String> = None;
+    
+    for raw in cleaned_list {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(raw) {
+            if value["needs_recapture"].as_bool().unwrap_or(false) {
+                if recapture_reason.is_none() {
+                    recapture_reason = value["reason"].as_str().map(|s| s.to_string());
+                }
+            }
+            if let Some(c) = value["confidence"].as_f64() {
+                confidence_values.push(c);
+            }
+            parsed.push(value);
+        }
+    }
+    
+    if let Some(reason) = recapture_reason {
+        return serde_json::json!({
+            "needs_recapture": true,
+            "reason": reason
+        });
+    }
+    
+    if parsed.is_empty() {
+        return serde_json::json!({
+            "type": "GENERAL",
+            "content": cleaned_list.join("\n")
+        });
+    }
+    
+    let has_dsa = parsed.iter().any(|v| v["type"].as_str() == Some("DSA_PROBLEM"));
+    let has_system = parsed.iter().any(|v| v["type"].as_str() == Some("SYSTEM_DESIGN"));
+    let has_debug = parsed.iter().any(|v| v["type"].as_str() == Some("DEBUG_ERROR"));
+    let has_logical = parsed.iter().any(|v| v["type"].as_str() == Some("LOGICAL_PUZZLE"));
+    
+    let confidence = if confidence_values.is_empty() {
+        0.9
+    } else {
+        confidence_values.iter().cloned().fold(1.0, f64::min)
+    };
+    
+    if has_dsa {
+        let sources: Vec<&serde_json::Value> = parsed
+            .iter()
+            .filter(|v| v["type"].as_str() == Some("DSA_PROBLEM"))
+            .collect();
+        
+        let mut title = String::new();
+        let mut descriptions = Vec::new();
+        let mut input_formats = Vec::new();
+        let mut output_formats = Vec::new();
+        let mut constraints = HashSet::new();
+        let mut examples = Vec::new();
+        let mut example_keys = HashSet::new();
+        
+        for v in sources {
+            if title.is_empty() {
+                if let Some(t) = v["title"].as_str() {
+                    title = t.to_string();
+                }
+            }
+            push_unique(&mut descriptions, v["description"].as_str());
+            push_unique(&mut input_formats, v["input_format"].as_str());
+            push_unique(&mut output_formats, v["output_format"].as_str());
+            
+            if let Some(arr) = v["constraints"].as_array() {
+                for c in arr {
+                    if let Some(s) = c.as_str() {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            constraints.insert(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+            
+            if let Some(arr) = v["examples"].as_array() {
+                for ex in arr {
+                    let input = ex["input"].as_str().unwrap_or("").trim();
+                    let output = ex["output"].as_str().unwrap_or("").trim();
+                    let key = format!("{}||{}", input, output);
+                    if !input.is_empty() || !output.is_empty() {
+                        if example_keys.insert(key) {
+                            examples.push(ex.clone());
+                        }
+                    }
+                }
+            }
+        }
+        
+        if title.is_empty() {
+            title = "Coding Problem".to_string();
+        }
+        
+        let constraints_vec: Vec<serde_json::Value> = constraints
+            .into_iter()
+            .map(serde_json::Value::String)
+            .collect();
+        
+        return serde_json::json!({
+            "type": "DSA_PROBLEM",
+            "title": title,
+            "description": descriptions.join("\n"),
+            "input_format": input_formats.join("\n"),
+            "output_format": output_formats.join("\n"),
+            "constraints": constraints_vec,
+            "examples": examples,
+            "confidence": confidence
+        });
+    }
+    
+    if has_system {
+        let sources: Vec<&serde_json::Value> = parsed
+            .iter()
+            .filter(|v| v["type"].as_str() == Some("SYSTEM_DESIGN"))
+            .collect();
+        
+        let mut questions = Vec::new();
+        let mut requirements = HashSet::new();
+        
+        for v in sources {
+            push_unique(&mut questions, v["question"].as_str().or_else(|| v["content"].as_str()));
+            if let Some(arr) = v["requirements"].as_array() {
+                for r in arr {
+                    if let Some(s) = r.as_str() {
+                        let trimmed = s.trim();
+                        if !trimmed.is_empty() {
+                            requirements.insert(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+        
+        let req_vec: Vec<serde_json::Value> = requirements
+            .into_iter()
+            .map(serde_json::Value::String)
+            .collect();
+        
+        return serde_json::json!({
+            "type": "SYSTEM_DESIGN",
+            "question": questions.join("\n"),
+            "requirements": req_vec,
+            "confidence": confidence
+        });
+    }
+    
+    if has_debug {
+        let sources: Vec<&serde_json::Value> = parsed
+            .iter()
+            .filter(|v| v["type"].as_str() == Some("DEBUG_ERROR"))
+            .collect();
+        
+        let mut error_category = String::new();
+        let mut codes = Vec::new();
+        let mut error_messages = Vec::new();
+        let mut descriptions = Vec::new();
+        
+        for v in sources {
+            if error_category.is_empty() {
+                if let Some(cat) = v["error_category"].as_str() {
+                    error_category = cat.to_string();
+                }
+            }
+            push_unique(&mut codes, v["code"].as_str());
+            push_unique(&mut error_messages, v["error_message"].as_str());
+            push_unique(&mut descriptions, v["error_description"].as_str().or_else(|| v["description"].as_str()).or_else(|| v["content"].as_str()));
+        }
+        
+        return serde_json::json!({
+            "type": "DEBUG_ERROR",
+            "error_category": error_category,
+            "code": codes.join("\n"),
+            "error_message": error_messages.join("\n"),
+            "error_description": descriptions.join("\n"),
+            "confidence": confidence
+        });
+    }
+    
+    let sources: Vec<&serde_json::Value> = parsed
+        .iter()
+        .filter(|v| v["type"].as_str() == Some("LOGICAL_PUZZLE"))
+        .collect();
+    
+    if has_logical && !sources.is_empty() {
+        let mut contents = Vec::new();
+        for v in sources {
+            push_unique(&mut contents, v["content"].as_str().or_else(|| v["question"].as_str()).or_else(|| v["description"].as_str()));
+        }
+        return serde_json::json!({
+            "type": "LOGICAL_PUZZLE",
+            "content": contents.join("\n"),
+            "confidence": confidence
+        });
+    }
+    
+    let mut contents = Vec::new();
+    for v in &parsed {
+        push_unique(&mut contents, v["content"].as_str().or_else(|| v["question"].as_str()).or_else(|| v["description"].as_str()));
+    }
+    
+    serde_json::json!({
+        "type": "GENERAL",
+        "content": contents.join("\n"),
+        "confidence": confidence
+    })
+}
+
+async fn process_debug_screenshot(image_data: String, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     info!("Processing debug screenshot...");
     
     send_or_buffer(tx, serde_json::json!({
@@ -479,36 +781,65 @@ async fn process_debug_screenshot(image_data: String, groq: &GroqClient, tx: &br
     }
 }
 
-async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<RwLock<bool>>) {
-    info!("Processing screenshot...");
+async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    if image_data_list.is_empty() {
+        return;
+    }
+    
+    let capture_count = image_data_list.len();
+    let status_text = if capture_count > 1 {
+        format!("Screenshots ({}) captured - analyzing...", capture_count)
+    } else {
+        "Screenshot captured - analyzing...".to_string()
+    };
+    
+    info!("Processing screenshot{}...", if capture_count > 1 { "s" } else { "" });
     
     send_or_buffer(tx, serde_json::json!({
         "type": "transcription",
-        "text": "Screenshot captured - analyzing..."
+        "text": status_text
     }).to_string(), &buffer, &connected).await;
     
     // Get conversation history for context
     let history = conversation.read().await.clone();
     
-    match groq.analyze_image(&image_data, &history).await {
-        Ok((analysis, _is_coding)) => {
+    let analysis_result: Result<String, String> = if capture_count == 1 {
+        groq.analyze_image(&image_data_list[0], &history)
+            .await
+            .map(|(analysis, _)| analysis)
+    } else {
+        let mut analyses = Vec::new();
+        for image in &image_data_list {
+            match groq.analyze_image(image, &history).await {
+                Ok((analysis, _)) => analyses.push(analysis),
+                Err(e) => {
+                    error!("Screenshot analysis error: {}", e);
+                    send_or_buffer(tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error analyzing screenshot: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                    return;
+                }
+            }
+        }
+        
+        let cleaned_list: Vec<String> = analyses.iter().map(|a| clean_analysis_text(a)).collect();
+        let merged = merge_cleaned_analyses(&cleaned_list);
+        Ok(merged.to_string())
+    };
+    
+    match analysis_result {
+        Ok(analysis) => {
             info!("Raw analysis from Scout: {}", &analysis[..analysis.len().min(200)]);
             
-            let cleaned_analysis = analysis
-                .trim()
-                .strip_prefix("```json")
-                .or_else(|| analysis.trim().strip_prefix("```"))
-                .unwrap_or(analysis.trim())
-                .strip_suffix("```")
-                .unwrap_or(analysis.trim())
-                .trim();
+            let cleaned_analysis = clean_analysis_text(&analysis);
             
             info!("Cleaned analysis (first 300 chars): {}", &cleaned_analysis[..cleaned_analysis.len().min(300)]);
             
             let mut is_coding = false;
             let mut problem_type_str = String::from("GENERAL");
             
-            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cleaned_analysis) {
                 info!("Successfully parsed JSON");
                 if parsed["needs_recapture"].as_bool().unwrap_or(false) {
                     let reason = parsed["reason"].as_str().unwrap_or("Low confidence. Please recapture.");
@@ -537,7 +868,7 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
             
             let final_answer = if is_coding {
                 info!("Detected DSA_PROBLEM, formatting data for OSS-120B...");
-                let problem_data = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+                let problem_data = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cleaned_analysis) {
                     let mut formatted = String::new();
                     formatted.push_str(&format!("Problem: {}\n\n", parsed["title"].as_str().unwrap_or("Coding Problem")));
                     formatted.push_str(&format!("Description:\n{}\n\n", parsed["description"].as_str().unwrap_or("")));
@@ -593,7 +924,7 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
                     }
                 }
             } else {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_analysis) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cleaned_analysis) {
                     let problem_type = parsed["type"].as_str().unwrap_or("GENERAL");
                     
                     match problem_type {
@@ -727,3 +1058,5 @@ async fn process_screenshot(image_data: String, groq: &GroqClient, tx: &broadcas
         }
     }
 }
+
+

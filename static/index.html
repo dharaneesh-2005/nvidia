@@ -118,6 +118,87 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
+
+        .multi-capture-indicator {
+            position: fixed;
+            left: 50%;
+            bottom: calc(12px + env(safe-area-inset-bottom));
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.55);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 14px;
+            font-size: 13px;
+            font-weight: 600;
+            z-index: 1000;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: none;
+            max-width: 92vw;
+            text-align: center;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+        }
+        
+        .multi-capture-indicator.active {
+            display: block;
+        }
+        
+        .multi-capture-indicator .mc-title {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            opacity: 0.8;
+        }
+        
+        .multi-capture-indicator .mc-count {
+            font-size: 16px;
+            font-weight: 700;
+            margin-top: 2px;
+        }
+        
+        .multi-capture-indicator .mc-hint {
+            font-size: 11px;
+            opacity: 0.85;
+            margin-top: 2px;
+        }
+
+        .multi-capture-indicator .mc-cancel {
+            margin-top: 8px;
+            padding: 8px 14px;
+            border-radius: 10px;
+            border: 1px solid rgba(231, 76, 60, 0.6);
+            background: rgba(231, 76, 60, 0.3);
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            min-width: 120px;
+            touch-action: manipulation;
+        }
+        
+        .multi-capture-indicator .mc-cancel:active {
+            transform: scale(0.98);
+            background: rgba(231, 76, 60, 0.45);
+        }
+        
+        @media (max-width: 480px) {
+            .multi-capture-indicator {
+                padding: 12px 16px;
+                font-size: 14px;
+            }
+            .multi-capture-indicator .mc-count {
+                font-size: 18px;
+            }
+            .multi-capture-indicator .mc-hint {
+                display: none;
+            }
+            .multi-capture-indicator .mc-cancel {
+                min-width: 160px;
+                padding: 10px 18px;
+                font-size: 14px;
+            }
+        }
         
         .chat-container {
             flex: 1;
@@ -462,6 +543,15 @@
         </header>
         
         <div class="chat-container" id="chat"></div>
+        <div class="multi-capture-indicator" id="multiCaptureIndicator" aria-live="polite">
+            <div class="mc-title">Multi-capture</div>
+            <div class="mc-count" id="multiCaptureCountText">0 chunks</div>
+            <div class="mc-hint">Ctrl+Alt+X to send - Ctrl+Alt+Z to cancel</div>
+            <button class="mc-cancel" id="multiCaptureCancelBtn" type="button">Cancel</button>
+        </div>
+        <button class="manual-search-toggle" id="manualSearchToggle" type="button" aria-label="Open manual search" title="Manual search (Ctrl+Alt+S)">
+            <span aria-hidden="true">&#128269;</span>
+        </button>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
@@ -506,11 +596,18 @@
         let audioChunks = [];
         let isRecording = false;
         
+        let multiCaptureCount = 0;
+        
         // Restore chat history on load
         window.addEventListener('DOMContentLoaded', () => {
             const saved = localStorage.getItem('chat_history');
             if (saved) {
                 document.getElementById('chat').innerHTML = saved;
+            }
+            
+            const cancelBtn = document.getElementById('multiCaptureCancelBtn');
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', cancelMultiCapture);
             }
         });
         
@@ -535,6 +632,25 @@
                     }
                 }
             }
+        }
+
+        function updateMultiCaptureIndicator(count) {
+            multiCaptureCount = count;
+            const indicator = document.getElementById('multiCaptureIndicator');
+            const countText = document.getElementById('multiCaptureCountText');
+            if (!indicator || !countText) return;
+            
+            countText.textContent = `${count} ${count === 1 ? 'chunk' : 'chunks'}`;
+            if (count > 0) {
+                indicator.classList.add('active');
+            } else {
+                indicator.classList.remove('active');
+            }
+        }
+        
+        function cancelMultiCapture() {
+            updateMultiCaptureIndicator(0);
+            sendMessage('multi_capture_cancel');
         }
         
         function connect() {
@@ -612,8 +728,20 @@
             reconnectTimer = setTimeout(() => {
                 connect();
             }, delay);
-        }
+        }        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    connect();
+                }
+            }
+        });
         
+        window.addEventListener('online', () => {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                connect();
+            }
+        });
+
         function sendMessage(message) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(message);
@@ -630,7 +758,10 @@
         function handleMessage(data) {
             const chat = document.getElementById('chat');
             
-            if (data.type === 'toggle_search') {
+            if (data.type === 'multi_capture_update') {
+                const count = Number.isFinite(data.count) ? data.count : parseInt(data.count || 0, 10);
+                updateMultiCaptureIndicator(Number.isFinite(count) ? count : 0);
+            } else if (data.type === 'toggle_search') {
                 if (searchModal && searchModal.classList.contains('active')) {
                     closeSearchModal();
                 } else {
@@ -1081,3 +1212,7 @@
     </script>
 </body>
 </html>
+
+
+
+

@@ -40,18 +40,34 @@ function initSearchModal() {
             }
         }
     });
+
+    const manualToggleBtn = document.getElementById('manualSearchToggle');
+    if (manualToggleBtn) {
+        manualToggleBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            toggleSearchModal();
+        });
+    }
     
     // Listen for Ctrl+Alt+S globally
     document.addEventListener('keydown', (e) => {
         if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 's') {
             e.preventDefault();
-            if (searchModal.classList.contains('active')) {
-                closeSearchModal();
-            } else {
-                openSearchModal();
-            }
+            toggleSearchModal();
         }
     });
+}
+
+function toggleSearchModal() {
+    if (!searchModal) {
+        console.error('searchModal is null!');
+        return;
+    }
+    if (searchModal.classList.contains('active')) {
+        closeSearchModal();
+    } else {
+        openSearchModal();
+    }
 }
 
 function openSearchModal() {

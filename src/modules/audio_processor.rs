@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use crossbeam_channel::{Receiver, RecvTimeoutError};
@@ -41,7 +42,7 @@ pub struct AudioProcessor {
     tx: broadcast::Sender<String>,
     conversation: ConversationHistory,
     buffer: MessageBuffer,
-    connected: Arc<RwLock<bool>>,
+    connected: Arc<AtomicUsize>,
     
     // State
     accumulated_audio: Vec<f32>,
@@ -71,7 +72,7 @@ impl AudioProcessor {
         tx: broadcast::Sender<String>,
         conversation: ConversationHistory,
         buffer: MessageBuffer,
-        connected: Arc<RwLock<bool>>,
+        connected: Arc<AtomicUsize>,
     ) -> Self {
         info!("AudioProcessor initializing with streaming-like VAD...");
         Self {
@@ -383,8 +384,8 @@ impl AudioProcessor {
     }
 
     async fn send_or_buffer(&self, message: String) {
-        let connected = *self.connected.read().await;
-        if connected {
+        let connected = self.connected.load(Ordering::SeqCst);
+        if connected > 0 {
             let _ = self.tx.send(message);
         } else {
             self.buffer.write().await.push_back(message);
