@@ -101,6 +101,108 @@ impl GroqClient {
         
         context
     }
+
+    fn is_profile_question(message_lower: &str) -> bool {
+        let explicit_phrases = [
+            "tell me about yourself",
+            "introduce yourself",
+            "walk me through your",
+            "about you",
+            "your background",
+            "your experience",
+            "your projects",
+            "your project",
+            "describe your project",
+            "your work",
+            "your resume",
+            "your cv",
+            "your profile",
+            "your achievements",
+            "your accomplishment",
+            "your strengths",
+            "your weakness",
+            "your role",
+            "your responsibilities",
+            "your internship",
+            "your education",
+            "your degree",
+            "your company",
+            "where did you work",
+            "where have you worked",
+            "what did you do at",
+            "what have you built",
+            "what did you build",
+            "what have you worked on",
+            "what did you work on",
+            "project you built",
+            "project you worked on",
+            "portfolio",
+            "github",
+            "most proud",
+            "why should we hire you",
+            "why do you want to join",
+            "why do you want this role",
+        ];
+
+        if explicit_phrases.iter().any(|t| message_lower.contains(t)) {
+            return true;
+        }
+
+        let has_you = message_lower.contains(" you ") ||
+                      message_lower.contains(" your ") ||
+                      message_lower.starts_with("you ") ||
+                      message_lower.starts_with("your ") ||
+                      message_lower.contains(" u ") ||
+                      message_lower.starts_with("u ");
+
+        let metric_keywords = [
+            "how many",
+            "how much",
+            "how long",
+            "problems",
+            "problem",
+            "questions",
+            "leetcode",
+            "codeforces",
+            "codechef",
+            "hackerrank",
+            "contest",
+            "rating",
+            "rank",
+            "score",
+            "stars",
+            "solved",
+        ];
+
+        let has_metric_intent = (message_lower.contains("how many") || message_lower.contains("how much") || message_lower.contains("how long")) &&
+                                has_you &&
+                                metric_keywords.iter().any(|k| message_lower.contains(k));
+
+        if has_metric_intent {
+            return true;
+        }
+
+        let personal_keywords = [
+            "experience",
+            "project",
+            "projects",
+            "work",
+            "resume",
+            "cv",
+            "profile",
+            "achievement",
+            "accomplishment",
+            "education",
+            "degree",
+            "internship",
+            "company",
+            "role",
+            "responsibilities",
+            "built",
+        ];
+
+        has_you && personal_keywords.iter().any(|k| message_lower.contains(k))
+    }
     
     pub async fn transcribe(&self, audio_data: &[u8]) -> Result<String, String> {
         self.transcribe_with_options(audio_data, "whisper-large-v3", None).await
@@ -124,7 +226,7 @@ impl GroqClient {
             if let Some(p) = prompt {
                 form = form.text("prompt", p.to_string());
             } else {
-                form = form.text("prompt", "Technical interview question about programming, databases, algorithms, or computer science.");
+                form = form.text("prompt", "Indian English accent. Technical interview question about programming, databases, algorithms, or computer science.");
             }
             
             let result = self.client
@@ -165,15 +267,19 @@ impl GroqClient {
     }
     
     pub async fn chat_with_history(&self, message: &str, history: &[ConversationMessage]) -> Result<String, String> {
+        let message_lower = message.to_lowercase();
         let last_msg = history.last().map(|m| m.content.to_lowercase()).unwrap_or_default();
-        let is_multithreading = last_msg.contains("thread") || last_msg.contains("concurren") || 
-                                last_msg.contains("mutex") || last_msg.contains("lock") || 
-                                last_msg.contains("race condition") || last_msg.contains("deadlock") ||
-                                last_msg.contains("synchroniz") || last_msg.contains("parallel");
-        let is_system_design = last_msg.contains("design") && (last_msg.contains("system") || 
-                                last_msg.contains("architect") || last_msg.contains("scale"));
+        let topic_hint = format!("{} {}", last_msg, message_lower);
+        let is_multithreading = topic_hint.contains("thread") || topic_hint.contains("concurren") || 
+                                topic_hint.contains("mutex") || topic_hint.contains("lock") || 
+                                topic_hint.contains("race condition") || topic_hint.contains("deadlock") ||
+                                topic_hint.contains("synchroniz") || topic_hint.contains("parallel");
+        let is_system_design = topic_hint.contains("design") && (topic_hint.contains("system") || 
+                                topic_hint.contains("architect") || topic_hint.contains("scale"));
+        let is_profile_question = Self::is_profile_question(&message_lower);
+        let use_profile = !self.user_profile.is_empty() && is_profile_question;
         
-        let system_prompt = if self.user_profile.is_empty() {
+        let system_prompt = if !use_profile {
             if is_multithreading {
                 "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:
 
@@ -186,7 +292,7 @@ impl GroqClient {
 - Producer-consumer patterns
 - Read-write locks and atomic operations
 
-Provide practical examples with code snippets. Be conversational and direct. Never mention you are an AI.".to_string()
+Provide practical examples with code snippets. Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else if is_system_design {
                 "You are a candidate in a technical interview answering system design questions. Provide:
 
@@ -205,7 +311,7 @@ Use simple text diagrams like:
                                  [Database]
 ```
 
-Be conversational and direct. Never mention you are an AI.".to_string()
+Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else {
                 "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:
 
@@ -215,11 +321,11 @@ Be conversational and direct. Never mention you are an AI.".to_string()
 - For OS: Discuss Operating Systems concepts
 - For System Design: Explain architecture patterns
 
-Be conversational and direct. Never mention you are an AI or assistant.".to_string()
+Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
             }
         } else {
             if is_multithreading {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions as this person. Focus on:
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Focus on:
 
 - Thread safety mechanisms (mutexes, semaphores, locks)
 - Race conditions and how to prevent them
@@ -230,7 +336,7 @@ Be conversational and direct. Never mention you are an AI or assistant.".to_stri
 
 Provide practical examples with code. Use first person (I, my, me). Never say you are an AI.", self.user_profile)
             } else if is_system_design {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions as this person. Provide:
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Provide:
 
 1. High-level architecture description
 2. Component breakdown
@@ -246,7 +352,7 @@ Provide practical examples with code. Use first person (I, my, me). Never say yo
 
 Use first person (I, my, me). Never say you are an AI.", self.user_profile)
             } else {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer all questions as this person. Use first person (I, my, me). When asked about yourself, projects, or experience, refer to the profile above. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer questions about yourself, projects, or experience using only the profile above. If a personal detail is not in the profile, say it is not provided. For purely technical questions, answer directly without adding personal details. Use first person (I, my, me) only when answering about yourself. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
 - For OOP/OOPS: Explain Object-Oriented Programming principles
 - For DBMS: Discuss Database Management Systems concepts
 - For DSA: Explain Data Structures and Algorithms

@@ -9,24 +9,24 @@ use crate::modules::groq::{GroqClient, ConversationMessage};
 
 // Configuration constants
 const SAMPLE_RATE: u32 = 16000;
-const MIN_AUDIO_DURATION: Duration = Duration::from_millis(800);
+const MIN_AUDIO_DURATION: Duration = Duration::from_millis(600);
 const MAX_AUDIO_DURATION: Duration = Duration::from_secs(30);
 
 // Adaptive silence detection (like Parakeet/LockedIn)
-const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
-const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(2000);
+const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(700);
+const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
 const NOISE_CALIBRATION_FRAMES: usize = 50;
 const RECALIBRATION_INTERVAL: Duration = Duration::from_secs(10);
 
 // Voice activity detection thresholds
-const NOISE_FLOOR_MULTIPLIER: f32 = 3.0; // More aggressive than before
-const MIN_SPEECH_FRAMES: usize = 10; // 200ms
-const MIN_SPEECH_ENERGY: f32 = 0.010;
+const NOISE_FLOOR_MULTIPLIER: f32 = 2.2; // Faster trigger in low-noise interviews
+const MIN_SPEECH_FRAMES: usize = 6; // Faster trigger (~120ms)
+const MIN_SPEECH_ENERGY: f32 = 0.008;
 const MAX_NOISE_FLOOR: f32 = 0.020;
 
 // Zero-crossing rate for voice detection
-const MIN_ZCR: f32 = 0.02;
-const MAX_ZCR: f32 = 0.35;
+const MIN_ZCR: f32 = 0.015;
+const MAX_ZCR: f32 = 0.40;
 
 // Spectral features (frequency analysis)
 const VOICE_FREQ_MIN: f32 = 80.0;  // Hz
@@ -173,7 +173,7 @@ impl AudioProcessor {
         // Multi-factor voice detection (energy + ZCR + SNR)
         let is_voice_like = energy > dynamic_threshold && 
                            zcr >= MIN_ZCR && zcr <= MAX_ZCR &&
-                           snr >= 2.0; // SNR must be at least 2:1
+                           snr >= 1.6; // Faster trigger in low-noise interviews
         
         if is_voice_like {
             self.consecutive_speech_frames += 1;
@@ -287,7 +287,7 @@ impl AudioProcessor {
         }
 
         let rms = self.calculate_rms(&self.accumulated_audio);
-        let min_valid_energy = (self.noise_floor * 1.5).max(0.005);
+        let min_valid_energy = (self.noise_floor * 1.2).max(0.004);
         
         if rms < min_valid_energy {
             info!("Discarding: Low energy {:.4} < {:.4}", rms, min_valid_energy);
