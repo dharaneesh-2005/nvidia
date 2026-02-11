@@ -225,6 +225,30 @@
             border-radius: 12px;
             padding: 12px;
             margin-bottom: 8px;
+            position: relative;
+        }
+        
+        .solve-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(16, 163, 127, 0.3);
+            border: 1px solid rgba(16, 163, 127, 0.5);
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .solve-btn:hover {
+            background: rgba(16, 163, 127, 0.5);
+        }
+        
+        .solve-btn:active {
+            transform: scale(0.95);
         }
         
         .msg-a {
@@ -798,6 +822,7 @@
                     <div class="msg-q">
                         <div class="msg-label">Q</div>
                         <div class="msg-content">${escapeHtml(data.text)}</div>
+                        <button class="solve-btn" onclick="solveProblem(this, '${escapeHtml(data.text).replace(/'/g, "\\'")}')">🚀 Solve</button>
                     </div>
                     <div class="msg-a">
                         <div class="msg-label">A</div>
@@ -1206,6 +1231,32 @@
                 console.log('Audio sent to server');
             };
             reader.readAsDataURL(audioBlob);
+        }
+        
+        function solveProblem(btn, questionText) {
+            const unescaped = questionText.replace(/\\'/g, "'");
+            const chat = document.getElementById('chat');
+            
+            const msg = document.createElement('div');
+            msg.className = 'message';
+            msg.innerHTML = `
+                <div class="msg-q">
+                    <div class="msg-label">Q</div>
+                    <div class="msg-content">${escapeHtml(unescaped)}</div>
+                </div>
+                <div class="msg-a">
+                    <div class="msg-label">A</div>
+                    <div class="msg-content"><span class="loading">🤔 Solving with OSS-120B...</span></div>
+                </div>
+            `;
+            chat.appendChild(msg);
+            currentAnswer = msg.querySelector('.msg-a .msg-content');
+            saveChat();
+            
+            sendMessage(JSON.stringify({
+                type: 'solve_problem',
+                text: unescaped
+            }));
         }
         
         connect();

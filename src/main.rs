@@ -190,7 +190,35 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     } else if text.starts_with("{") {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                            if msg_type == "manual_question" {
+                            if msg_type == "solve_problem" {
+                                let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                if !question.is_empty() {
+                                    let tx_clone = state.tx.clone();
+                                    let groq = state.groq.clone();
+                                    let conversation = state.conversation.clone();
+                                    let buffer = state.message_buffer.clone();
+                                    let connected = state.client_connections.clone();
+                                    tokio::spawn(async move {
+                                        let history = conversation.read().await.clone();
+                                        match groq.solve_coding_problem(&question, &history).await {
+                                            Ok(solution) => {
+                                                conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: question.clone() });
+                                                conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: solution.clone() });
+                                                send_or_buffer(&tx_clone, serde_json::json!({
+                                                    "type": "answer",
+                                                    "text": solution
+                                                }).to_string(), &buffer, &connected).await;
+                                            },
+                                            Err(e) => {
+                                                send_or_buffer(&tx_clone, serde_json::json!({
+                                                    "type": "answer",
+                                                    "text": format!("Error: {}", e)
+                                                }).to_string(), &buffer, &connected).await;
+                                            }
+                                        }
+                                    });
+                                }
+                            } else if msg_type == "manual_question" {
                                 let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 info!("🔍 [SEARCH LOG] Received manual_question: '{}'", question);
                                 
