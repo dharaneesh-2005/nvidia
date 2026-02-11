@@ -282,6 +282,7 @@ impl GroqClient {
         let system_prompt = if !use_profile {
             if is_multithreading {
                 "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:
+
 - Thread safety mechanisms (mutexes, semaphores, locks)
 - Race conditions and how to prevent them
 - Deadlock scenarios and prevention strategies
@@ -291,9 +292,10 @@ impl GroqClient {
 - Producer-consumer patterns
 - Read-write locks and atomic operations
 
-Provide practical examples with code snippets. Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+Provide practical examples with code snippets. Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else if is_system_design {
                 "You are a candidate in a technical interview answering system design questions. Provide:
+
 1. High-level architecture description
 2. Component breakdown with responsibilities
 3. Data flow and communication patterns
@@ -309,20 +311,22 @@ Use simple text diagrams like:
                                  [Database]
 ```
 
-Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else {
                 "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:
+
 - For OOP/OOPS: Explain Object-Oriented Programming principles
 - For DBMS: Discuss Database Management Systems concepts
 - For DSA: Explain Data Structures and Algorithms
 - For OS: Discuss Operating Systems concepts
 - For System Design: Explain architecture patterns
 
-Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
+Be conversational and direct. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
             }
         } else {
             if is_multithreading {
                 format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Focus on:
+
 - Thread safety mechanisms (mutexes, semaphores, locks)
 - Race conditions and how to prevent them
 - Deadlock scenarios and prevention strategies
@@ -330,9 +334,10 @@ Be conversational and direct. NEVER use tables, always use bullet points. Keep m
 - Concurrent data structures
 - Producer-consumer patterns
 
-Provide practical examples with code. Use first person (I, my, me). NEVER use tables, always use bullet points. Keep minimal spacing. Never say you are an AI.", self.user_profile)
+Provide practical examples with code. Use first person (I, my, me). Never say you are an AI.", self.user_profile)
             } else if is_system_design {
                 format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Provide:
+
 1. High-level architecture description
 2. Component breakdown
 3. Data flow patterns
@@ -345,7 +350,7 @@ Provide practical examples with code. Use first person (I, my, me). NEVER use ta
                                  [Database]
 ```
 
-Use first person (I, my, me). NEVER use tables, always use bullet points. Keep minimal spacing. Never say you are an AI.", self.user_profile)
+Use first person (I, my, me). Never say you are an AI.", self.user_profile)
             } else {
                 format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer questions about yourself, projects, or experience using only the profile above. If a personal detail is not in the profile, say it is not provided. For purely technical questions, answer directly without adding personal details. Use first person (I, my, me) only when answering about yourself. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
 - For OOP/OOPS: Explain Object-Oriented Programming principles
@@ -353,7 +358,7 @@ Use first person (I, my, me). NEVER use tables, always use bullet points. Keep m
 - For DSA: Explain Data Structures and Algorithms
 - For OS: Discuss Operating Systems concepts
 
-Be conversational and natural like a real candidate. NEVER use tables, always use bullet points. Keep minimal spacing.", self.user_profile)
+Be conversational and natural like a real candidate.", self.user_profile)
             }
         };
         
@@ -496,7 +501,7 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let system_prompt = "You are a technical interview coding expert. Solve problems using C++ with this EXACT format:\n\nPROBLEM UNDERSTANDING\n[Brief explanation of what the problem asks]\n\nBRUTE FORCE APPROACH\nExplanation: [How brute force works]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n```cpp\n// Brute force C++ code\nclass Solution {\npublic:\n    // Function implementation\n};\n```\n\nOPTIMAL APPROACH\nExplanation: [How optimal solution works, why it's better]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n```cpp\n// Optimal C++ code\nclass Solution {\npublic:\n    // Function implementation\n};\n```\n\nIMPORTANT:\n- NEVER use tables, always use bullet points\n- Keep minimal spacing between sections\n- Format explanations as bullet points for easy verbal delivery";
+        let system_prompt = "You are a technical interview coding expert. Solve problems using C++ with this EXACT format:\n\nPROBLEM UNDERSTANDING\n[Brief explanation of what the problem asks]\n\nBRUTE FORCE APPROACH\nExplanation: [How brute force works]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n\n```cpp\n// Brute force C++ code with clear comments\n// Each line should be properly indented\nclass Solution {\npublic:\n    // Function implementation here\n};\n```\n\nOPTIMAL APPROACH\nExplanation: [How optimal solution works, why it's better]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n\n```cpp\n// Optimal C++ code with clear comments\n// Each line should be properly indented\nclass Solution {\npublic:\n    // Function implementation here\n};\n```\n\nIMPORTANT: \n- Use proper C++ indentation (4 spaces per level)\n- Include complete class structure\n- Add meaningful comments\n- Ensure code is properly formatted with line breaks\n- Use standard LeetCode-style class structure";
         
         let mut messages = vec![json!({
             "role": "system",
@@ -609,7 +614,7 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
             }
         }
         
-        let debug_prompt = format!("Error analysis:\n{}\n{}\n\nProvide fix in this format:\n\nERROR IDENTIFIED\n[Brief explanation]\nFIX REQUIRED\n[Specific changes]\nCORRECTED CODE\n```cpp\n// Fixed C++ code\nclass Solution {{\npublic:\n    // Corrected implementation\n}};\n```\n\nIMPORTANT:\n- NEVER use tables, always use bullet points\n- Keep minimal spacing\n- Format as bullet points for easy verbal delivery", error_description, context);
+        let debug_prompt = format!("Error analysis:\n{}\n{}\n\nProvide fix in this format:\n\nERROR IDENTIFIED\n[Brief explanation]\n\nFIX REQUIRED\n[Specific changes needed]\n\nCORRECTED CODE\n```cpp\n// Fixed C++ code with proper indentation\n// Each line should be properly formatted\nclass Solution {{\npublic:\n    // Corrected function implementation\n}};\n```\n\nIMPORTANT: \n- Use proper C++ indentation (4 spaces per level)\n- Include complete corrected code\n- Add comments explaining the fix\n- Ensure code is properly formatted with line breaks", error_description, context);
         
         let mut messages = vec![json!({
             "role": "system",
