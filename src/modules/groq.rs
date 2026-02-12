@@ -25,8 +25,27 @@ impl GroqClient {
     }
     
     fn load_profile() -> String {
-        match fs::read_to_string("profile.json") {
-            Ok(content) => {
+        let profile_paths = [
+            "profile.json",
+            "interview-helper/profile.json",
+            "../profile.json",
+            "./interview-helper/profile.json",
+            "e:/project/newphonewrtc/interview-helper/profile.json",
+            "e:\\project\\newphonewrtc\\interview-helper\\profile.json"
+        ];
+        
+        let content = profile_paths.iter()
+            .find_map(|path| {
+                if let Ok(c) = fs::read_to_string(path) {
+                    eprintln!("✅ Profile loaded from: {}", path);
+                    Some(c)
+                } else {
+                    None
+                }
+            });
+        
+        match content {
+            Some(content) => {
                 if let Ok(profile) = serde_json::from_str::<serde_json::Value>(&content) {
                     Self::format_profile(&profile)
                 } else {
@@ -34,10 +53,10 @@ impl GroqClient {
                     String::new()
                 }
             }
-            Err(_) => {
-                eprintln!("⚠️  WARNING: profile.json not found. Profile features disabled.");
+            None => {
+                eprintln!("⚠️  WARNING: profile.json not found in any expected location. Profile features disabled.");
                 String::new()
-            },
+            }
         }
     }
     
@@ -277,48 +296,14 @@ impl GroqClient {
         let is_system_design = topic_hint.contains("design") && (topic_hint.contains("system") || 
                                 topic_hint.contains("architect") || topic_hint.contains("scale"));
         let is_profile_question = Self::is_profile_question(&message_lower);
-        let use_profile = !self.user_profile.is_empty() && is_profile_question;
         
-        let system_prompt = if !use_profile {
+        let system_prompt = if !self.user_profile.is_empty() && is_profile_question {
             if is_multithreading {
-                "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:
-- Thread safety mechanisms (mutexes, semaphores, locks)
-- Race conditions and how to prevent them
-- Deadlock scenarios and prevention strategies
-- Synchronization primitives (monitors, condition variables)
-- Thread lifecycle and management
-- Concurrent data structures
-- Producer-consumer patterns
-- Read-write locks and atomic operations
-
-Provide practical examples with code snippets. Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+                "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:\n- Thread safety mechanisms (mutexes, semaphores, locks)\n- Race conditions and how to prevent them\n- Deadlock scenarios and prevention strategies\n- Synchronization primitives (monitors, condition variables)\n- Thread lifecycle and management\n- Concurrent data structures\n- Producer-consumer patterns\n- Read-write locks and atomic operations\n\nProvide practical examples with code snippets. Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else if is_system_design {
-                "You are a candidate in a technical interview answering system design questions. Provide:
-1. High-level architecture description
-2. Component breakdown with responsibilities
-3. Data flow and communication patterns
-4. Scalability considerations
-5. Technology choices with justification
-6. ASCII diagram representation when helpful
-
-Use simple text diagrams like:
-```
-[Client] --> [Load Balancer] --> [App Servers]
-                                      |
-                                      v
-                                 [Database]
-```
-
-Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+                "You are a candidate in a technical interview answering system design questions. Provide:\n1. High-level architecture description\n2. Component breakdown with responsibilities\n3. Data flow and communication patterns\n4. Scalability considerations\n5. Technology choices with justification\n6. ASCII diagram representation when helpful\n\nUse simple text diagrams like:\n```\n[Client] --> [Load Balancer] --> [App Servers]\n                                      |\n                                      v\n                                 [Database]\n```\n\nBe conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
             } else {
-                "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:
-- For OOP/OOPS: Explain Object-Oriented Programming principles
-- For DBMS: Discuss Database Management Systems concepts
-- For DSA: Explain Data Structures and Algorithms
-- For OS: Discuss Operating Systems concepts
-- For System Design: Explain architecture patterns
-
-Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
+                "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:\n- For OOP/OOPS: Explain Object-Oriented Programming principles\n- For DBMS: Discuss Database Management Systems concepts\n- For DSA: Explain Data Structures and Algorithms\n- For OS: Discuss Operating Systems concepts\n- For System Design: Explain architecture patterns\n\nBe conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
             }
         } else {
             if is_multithreading {
@@ -675,10 +660,11 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
             codebase_context.push_str(&format!("=== {} ===\n{}\n\n", file_path, content));
         }
         
-        let system_prompt = if self.user_profile.is_empty() {
-            format!("You are a technical interview assistant analyzing a codebase. {}\n\nProvide precise answers for bug fixes, integration tasks, or code understanding questions.", codebase_context)
+        let system_prompt = if !self.user_profile.is_empty() {
+            format!("You are a technical interview assistant.\n\nCANDIDATE PROFILE (use ONLY when explicitly asked about the candidate's background, experience, or projects):\n{}\n\n{}\n\nIMPORTANT INSTRUCTIONS:\n- For technical questions: Focus purely on the code logic, algorithms, and best practices. DO NOT mention the candidate's projects or experience unless specifically asked.\n- For questions like 'tell me about yourself', 'your experience', 'which project', 'where did you use': Reference the candidate profile above.\n- For questions like 'how did you optimize', 'what was the performance': ONLY answer from the profile if it contains that specific information, otherwise say you need more context.", 
+                self.user_profile, codebase_context)
         } else {
-            format!("You are a technical interview assistant helping this candidate:\n\n{}\n\n{}\n\nProvide precise answers for bug fixes, integration tasks, or code understanding questions.", self.user_profile, codebase_context)
+            format!("You are a technical interview assistant analyzing a codebase. {}\n\nProvide precise answers for bug fixes, integration tasks, or code understanding questions.", codebase_context)
         };
         
         let mut messages = vec![json!({
