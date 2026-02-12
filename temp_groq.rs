@@ -454,7 +454,7 @@ Be conversational and natural like a real candidate.", self.user_profile)
                 }
             ],
             "temperature": 0.3,
-            "max_tokens": 2000
+            "max_tokens": 5000
         });
         
         let response = self.client
@@ -585,7 +585,7 @@ Be conversational and natural like a real candidate.", self.user_profile)
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 1500
+            "max_tokens": 2500
         });
         
         let vision_response = self.client

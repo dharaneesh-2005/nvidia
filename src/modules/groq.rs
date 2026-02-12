@@ -121,107 +121,6 @@ impl GroqClient {
         context
     }
 
-    fn is_profile_question(message_lower: &str) -> bool {
-        let explicit_phrases = [
-            "tell me about yourself",
-            "introduce yourself",
-            "walk me through your",
-            "about you",
-            "your background",
-            "your experience",
-            "your projects",
-            "your project",
-            "describe your project",
-            "your work",
-            "your resume",
-            "your cv",
-            "your profile",
-            "your achievements",
-            "your accomplishment",
-            "your strengths",
-            "your weakness",
-            "your role",
-            "your responsibilities",
-            "your internship",
-            "your education",
-            "your degree",
-            "your company",
-            "where did you work",
-            "where have you worked",
-            "what did you do at",
-            "what have you built",
-            "what did you build",
-            "what have you worked on",
-            "what did you work on",
-            "project you built",
-            "project you worked on",
-            "portfolio",
-            "github",
-            "most proud",
-            "why should we hire you",
-            "why do you want to join",
-            "why do you want this role",
-        ];
-
-        if explicit_phrases.iter().any(|t| message_lower.contains(t)) {
-            return true;
-        }
-
-        let has_you = message_lower.contains(" you ") ||
-                      message_lower.contains(" your ") ||
-                      message_lower.starts_with("you ") ||
-                      message_lower.starts_with("your ") ||
-                      message_lower.contains(" u ") ||
-                      message_lower.starts_with("u ");
-
-        let metric_keywords = [
-            "how many",
-            "how much",
-            "how long",
-            "problems",
-            "problem",
-            "questions",
-            "leetcode",
-            "codeforces",
-            "codechef",
-            "hackerrank",
-            "contest",
-            "rating",
-            "rank",
-            "score",
-            "stars",
-            "solved",
-        ];
-
-        let has_metric_intent = (message_lower.contains("how many") || message_lower.contains("how much") || message_lower.contains("how long")) &&
-                                has_you &&
-                                metric_keywords.iter().any(|k| message_lower.contains(k));
-
-        if has_metric_intent {
-            return true;
-        }
-
-        let personal_keywords = [
-            "experience",
-            "project",
-            "projects",
-            "work",
-            "resume",
-            "cv",
-            "profile",
-            "achievement",
-            "accomplishment",
-            "education",
-            "degree",
-            "internship",
-            "company",
-            "role",
-            "responsibilities",
-            "built",
-        ];
-
-        has_you && personal_keywords.iter().any(|k| message_lower.contains(k))
-    }
     
     pub async fn transcribe(&self, audio_data: &[u8]) -> Result<String, String> {
         self.transcribe_with_options(audio_data, "whisper-large-v3", None).await
@@ -295,50 +194,22 @@ impl GroqClient {
                                 topic_hint.contains("synchroniz") || topic_hint.contains("parallel");
         let is_system_design = topic_hint.contains("design") && (topic_hint.contains("system") || 
                                 topic_hint.contains("architect") || topic_hint.contains("scale"));
-        let is_profile_question = Self::is_profile_question(&message_lower);
         
-        let system_prompt = if !self.user_profile.is_empty() && is_profile_question {
+        let system_prompt = if !self.user_profile.is_empty() {
             if is_multithreading {
-                "You are a candidate in a technical interview answering multithreading/concurrency questions. Focus on:\n- Thread safety mechanisms (mutexes, semaphores, locks)\n- Race conditions and how to prevent them\n- Deadlock scenarios and prevention strategies\n- Synchronization primitives (monitors, condition variables)\n- Thread lifecycle and management\n- Concurrent data structures\n- Producer-consumer patterns\n- Read-write locks and atomic operations\n\nProvide practical examples with code snippets. Be conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions. Structure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (2-3 sentences in plain English)\n2. PRACTICAL EXAMPLE (real-world analogy or code snippet)\n3. TECHNICAL DEEP DIVE (detailed concepts, edge cases, best practices)\n\nIMPORTANT: Only reference the profile above when asked about personal background, projects, or experience. For pure technical questions, focus on concepts without mentioning personal details.\n\nUse first person when discussing profile. NEVER use tables, always bullet points. Keep minimal spacing. Never say you are ChatGPT or an AI.", self.user_profile)
             } else if is_system_design {
-                "You are a candidate in a technical interview answering system design questions. Provide:\n1. High-level architecture description\n2. Component breakdown with responsibilities\n3. Data flow and communication patterns\n4. Scalability considerations\n5. Technology choices with justification\n6. ASCII diagram representation when helpful\n\nUse simple text diagrams like:\n```\n[Client] --> [Load Balancer] --> [App Servers]\n                                      |\n                                      v\n                                 [Database]\n```\n\nBe conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI.".to_string()
+                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions. Structure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (high-level overview in plain English)\n2. PRACTICAL EXAMPLE (real-world use case or ASCII diagram)\n3. TECHNICAL DEEP DIVE (components, data flow, scalability, trade-offs)\n\nIMPORTANT: Only reference the profile above when asked about personal background, projects, or experience. For pure technical questions, focus on concepts without mentioning personal details.\n\nUse first person when discussing profile. NEVER use tables, always bullet points. Keep minimal spacing. Never say you are ChatGPT or an AI.", self.user_profile)
             } else {
-                "You are a candidate in a technical interview. Answer questions directly as yourself. When answering:\n- For OOP/OOPS: Explain Object-Oriented Programming principles\n- For DBMS: Discuss Database Management Systems concepts\n- For DSA: Explain Data Structures and Algorithms\n- For OS: Discuss Operating Systems concepts\n- For System Design: Explain architecture patterns\n\nBe conversational and direct. NEVER use tables, always use bullet points. Keep minimal spacing. Answer in a neutral, factual style. Do not mention personal background, achievements, or projects. If asked about personal details, say they are not provided. Never invent personal details. Never mention you are an AI or assistant.".to_string()
+                format!("You are this candidate in a technical interview:\n\n{}\n\nStructure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (concept in plain English, 2-3 sentences)\n2. PRACTICAL EXAMPLE (code snippet or real-world analogy)\n3. TECHNICAL DEEP DIVE (detailed explanation, edge cases, best practices)\n\nIMPORTANT: Only reference the profile above when asked about personal background, projects, or experience. For pure technical questions, focus on concepts without mentioning personal details.\n\nUse first person when discussing profile. NEVER use tables, always bullet points. Keep minimal spacing. Never say you are ChatGPT or an AI.", self.user_profile)
             }
         } else {
             if is_multithreading {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading/concurrency questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Focus on:
-- Thread safety mechanisms (mutexes, semaphores, locks)
-- Race conditions and how to prevent them
-- Deadlock scenarios and prevention strategies
-- Synchronization primitives
-- Concurrent data structures
-- Producer-consumer patterns
-
-Provide practical examples with code. Use first person (I, my, me). NEVER use tables, always use bullet points. Keep minimal spacing. Never say you are an AI.", self.user_profile)
+                "You are a candidate in a technical interview. Answer multithreading/concurrency questions. Structure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (2-3 sentences in plain English)\n2. PRACTICAL EXAMPLE (real-world analogy or code snippet)\n3. TECHNICAL DEEP DIVE (detailed concepts, edge cases, best practices)\n\nNEVER use tables, always bullet points. Keep minimal spacing.".to_string()
             } else if is_system_design {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions as this person. Use only facts explicitly present in the profile. If a personal detail is not in the profile, say it is not provided. Provide:
-1. High-level architecture description
-2. Component breakdown
-3. Data flow patterns
-4. Scalability considerations
-5. ASCII diagram representation:
-```
-[Client] --> [Load Balancer] --> [Servers]
-                                      |
-                                      v
-                                 [Database]
-```
-
-Use first person (I, my, me). NEVER use tables, always use bullet points. Keep minimal spacing. Never say you are an AI.", self.user_profile)
+                "You are a candidate in a technical interview. Answer system design questions. Structure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (high-level overview in plain English)\n2. PRACTICAL EXAMPLE (real-world use case or ASCII diagram)\n3. TECHNICAL DEEP DIVE (components, data flow, scalability, trade-offs)\n\nNEVER use tables, always bullet points. Keep minimal spacing.".to_string()
             } else {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer questions about yourself, projects, or experience using only the profile above. If a personal detail is not in the profile, say it is not provided. For purely technical questions, answer directly without adding personal details. Use first person (I, my, me) only when answering about yourself. Never say you are ChatGPT, an AI, or an assistant.\n\nFor technical questions:
-- For OOP/OOPS: Explain Object-Oriented Programming principles
-- For DBMS: Discuss Database Management Systems concepts
-- For DSA: Explain Data Structures and Algorithms
-- For OS: Discuss Operating Systems concepts
-
-Be conversational and natural like a real candidate. NEVER use tables, always use bullet points. Keep minimal spacing.", self.user_profile)
+                "You are a candidate in a technical interview. Structure your response in 3 parts:\n\n1. SIMPLE EXPLANATION (concept in plain English, 2-3 sentences)\n2. PRACTICAL EXAMPLE (code snippet or real-world analogy)\n3. TECHNICAL DEEP DIVE (detailed explanation, edge cases, best practices)\n\nNEVER use tables, always bullet points. Keep minimal spacing.".to_string()
             }
         };
         
@@ -365,7 +236,7 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
             "model": "openai/gpt-oss-20b",
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 1500
+            "max_tokens": 1000
         });
         
         let response = self.client
@@ -434,7 +305,7 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
                 }
             ],
             "temperature": 0.3,
-            "max_tokens": 2000
+            "max_tokens": 3000
         });
         
         let response = self.client
@@ -565,7 +436,7 @@ Be conversational and natural like a real candidate. NEVER use tables, always us
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 1500
+            "max_tokens": 2000
         });
         
         let vision_response = self.client
