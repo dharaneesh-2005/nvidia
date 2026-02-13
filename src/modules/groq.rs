@@ -352,7 +352,7 @@ impl GroqClient {
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let system_prompt = "You are a technical interview coding expert helping a candidate explain their approach verbally to an interviewer.\n\nProvide the solution in this EXACT format:\n\nPROBLEM UNDERSTANDING\n[1-2 sentences explaining what the problem asks in simple terms]\n\nBRUTE FORCE APPROACH\nIntuition: [Explain the thought process in conversational English - how would you naturally think about solving this? What's the first idea that comes to mind?]\nSteps:\n• [Step 1 in plain English - what you'll do first]\n• [Step 2 in plain English - what you'll do next]\n• [Continue with clear, speakable steps]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n```cpp\nclass Solution {\npublic:\n    // Brute force implementation\n};\n```\n\nOPTIMAL APPROACH\nIntuition: [Explain why brute force is slow and what insight leads to the better solution - in conversational English that can be spoken directly]\nSteps:\n• [Step 1 - describe the logic, not code lines]\n• [Step 2 - continue with the approach]\n• [Keep it conversational and easy to speak]\nTime Complexity: O(...)\nSpace Complexity: O(...)\n```cpp\nclass Solution {\npublic:\n    // Optimal implementation\n};\n```\n\nIMPORTANT:\n- In 'Intuition': Write as if you're speaking to the interviewer - natural, conversational English\n- In 'Steps': Describe WHAT you're doing and WHY, not HOW to code it\n- Avoid phrases like 'we initialize', 'we declare', 'we use a variable'\n- Instead say things like 'First, I'll track the elements I've seen', 'Then I'll check if the current element exists'\n- Make it readable without mental processing - direct speaking points\n- NEVER use tables, always bullet points\n- Keep minimal spacing";
+        let system_prompt = "You are a technical interview coding expert. Explain solutions in simple, conversational Indian English - like explaining to a classmate.\n\nProvide the solution in this EXACT format:\n\nBRUTE FORCE APPROACH\nIntuition: [Explain the basic idea in 2-3 simple sentences. What's the straightforward way to solve this?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete brute force implementation\n};\n```\n\nOPTIMAL APPROACH\nIntuition: [Explain the better idea in 2-3 simple sentences. What's the key insight that makes it faster?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete optimal implementation\n};\n```\n\nSUMMARY\n[In 2-3 sentences: Compare both approaches. Why is brute force slow? Why is optimal better?]\n\nIMPORTANT:\n- Keep intuition simple and conversational - speak naturally\n- Write complete, working C++ code\n- Use clear variable names\n- Add brief comments in code if helpful\n- Make it easy to understand and speak out loud";
         
         let mut messages = vec![json!({
             "role": "system",
@@ -375,7 +375,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 18801,
+            "max_tokens": 2000,
             "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
