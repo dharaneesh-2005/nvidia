@@ -250,29 +250,64 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                         }
                                         
                                         info!("🔍 [SEARCH LOG] Sending to AI model: '{}'", question);
-                                        match groq.chat_with_history(&question, &history).await {
-                                            Ok(answer) => {
-                                                info!("🔍 [SEARCH LOG] AI response received (length: {})", answer.len());
-                                                let answer_preview = if answer.chars().count() > 200 {
-                                                    format!("{}...", answer.chars().take(200).collect::<String>())
-                                                } else {
-                                                    answer.clone()
-                                                };
-                                                info!("🔍 [SEARCH LOG] AI response preview: '{}'", answer_preview);
-                                                
-                                                conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: question.clone() });
-                                                conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: answer.clone() });
-                                                send_or_buffer(&tx_clone, serde_json::json!({
-                                                    "type": "answer",
-                                                    "text": answer
-                                                }).to_string(), &buffer, &connected).await;
-                                            },
-                                            Err(e) => {
-                                                error!("🔍 [SEARCH LOG] AI request failed: {}", e);
-                                                send_or_buffer(&tx_clone, serde_json::json!({
-                                                    "type": "answer",
-                                                    "text": format!("Error: {}", e)
-                                                }).to_string(), &buffer, &connected).await;
+                                        
+                                        // Try with 4-second timeout, retry once if it fails
+                                        let timeout_duration = Duration::from_secs(4);
+                                        let mut attempt = 1;
+                                        let max_attempts = 2;
+                                        
+                                        loop {
+                                            info!("🔍 [SEARCH LOG] Attempt {} of {}", attempt, max_attempts);
+                                            
+                                            let result = tokio::time::timeout(
+                                                timeout_duration,
+                                                groq.chat_with_history(&question, &history)
+                                            ).await;
+                                            
+                                            match result {
+                                                Ok(Ok(answer)) => {
+                                                    info!("🔍 [SEARCH LOG] AI response received (length: {})", answer.len());
+                                                    let answer_preview = if answer.chars().count() > 200 {
+                                                        format!("{}...", answer.chars().take(200).collect::<String>())
+                                                    } else {
+                                                        answer.clone()
+                                                    };
+                                                    info!("🔍 [SEARCH LOG] AI response preview: '{}'", answer_preview);
+                                                    
+                                                    conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: question.clone() });
+                                                    conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: answer.clone() });
+                                                    send_or_buffer(&tx_clone, serde_json::json!({
+                                                        "type": "answer",
+                                                        "text": answer
+                                                    }).to_string(), &buffer, &connected).await;
+                                                    break;
+                                                },
+                                                Ok(Err(e)) => {
+                                                    error!("🔍 [SEARCH LOG] AI request failed: {}", e);
+                                                    if attempt < max_attempts {
+                                                        info!("🔍 [SEARCH LOG] Retrying after error...");
+                                                        attempt += 1;
+                                                        continue;
+                                                    }
+                                                    send_or_buffer(&tx_clone, serde_json::json!({
+                                                        "type": "answer",
+                                                        "text": format!("Error: {}", e)
+                                                    }).to_string(), &buffer, &connected).await;
+                                                    break;
+                                                },
+                                                Err(_) => {
+                                                    error!("🔍 [SEARCH LOG] AI request timed out after {} seconds", timeout_duration.as_secs());
+                                                    if attempt < max_attempts {
+                                                        info!("🔍 [SEARCH LOG] Retrying after timeout...");
+                                                        attempt += 1;
+                                                        continue;
+                                                    }
+                                                    send_or_buffer(&tx_clone, serde_json::json!({
+                                                        "type": "answer",
+                                                        "text": "Request timed out after retries. Please try asking again."
+                                                    }).to_string(), &buffer, &connected).await;
+                                                    break;
+                                                }
                                             }
                                         }
                                     });
