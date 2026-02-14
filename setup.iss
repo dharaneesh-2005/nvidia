@@ -15,9 +15,9 @@ UninstallDisplayIcon={app}\nvidia.exe
 Source: "target\release\nvidia.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "cloudflared.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "cert.pem"; DestDir: "{app}"; Flags: ignoreversion
-Source: "credentials.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion
 Source: "profile.json"; DestDir: "{app}"; Flags: ignoreversion
+Source: "tunnels\*.json"; DestDir: "{app}\tunnels"; Flags: ignoreversion
 Source: "static\*"; DestDir: "{app}\static"; Flags: ignoreversion recursesubdirs
 Source: "start_hidden.bat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "start.vbs"; DestDir: "{app}"; DestName: "Nvidia.vbs"; Flags: ignoreversion
@@ -34,14 +34,31 @@ Filename: "wscript.exe"; Parameters: """{app}\Nvidia.vbs"""; Description: "Launc
 
 [Code]
 var
+  TunnelPage: TInputOptionWizardPage;
   DomainPage: TInputOptionWizardPage;
   CustomSubdomainPage: TInputQueryWizardPage;
   SelectedDomain: String;
+  SelectedTunnel: String;
+  SelectedTunnelFile: String;
 
 procedure InitializeWizard;
 begin
+  // Create tunnel selection page
+  TunnelPage := CreateInputOptionPage(wpWelcome,
+    'Tunnel Selection', 'Choose your tunnel',
+    'Each user should select a different tunnel to avoid conflicts:',
+    True, False);
+  
+  TunnelPage.Add('Dharaneesh (nvidia-dharaneesh)');
+  TunnelPage.Add('Steepan (nvidia-steepan)');
+  TunnelPage.Add('Dinesh (nvidia-dinesh)');
+  TunnelPage.Add('Backup 1 (nvidia-backup1)');
+  TunnelPage.Add('Backup 2 (nvidia-backup2)');
+  
+  TunnelPage.Values[0] := True; // Default to first tunnel
+  
   // Create domain selection page
-  DomainPage := CreateInputOptionPage(wpSelectDir,
+  DomainPage := CreateInputOptionPage(TunnelPage.ID,
     'Domain Configuration', 'Choose your subdomain for pinmypic.online',
     'Select how you want to access your application:',
     True, False);
@@ -69,6 +86,22 @@ begin
     Result := False;
 end;
 
+function GetSelectedTunnel(): String;
+begin
+  if TunnelPage.Values[0] then
+    Result := 'nvidia-dharaneesh'
+  else if TunnelPage.Values[1] then
+    Result := 'nvidia-steepan'
+  else if TunnelPage.Values[2] then
+    Result := 'nvidia-dinesh'
+  else if TunnelPage.Values[3] then
+    Result := 'nvidia-backup1'
+  else if TunnelPage.Values[4] then
+    Result := 'nvidia-backup2'
+  else
+    Result := 'nvidia-dharaneesh';
+end;
+
 function GetSelectedDomain(): String;
 var
   CustomSub: String;
@@ -92,17 +125,26 @@ var
   ConfigContent: TArrayOfString;
   ConfigFile: String;
   DomainFile: String;
+  TunnelFile: String;
+  CredFile: String;
   ResultCode: Integer;
   I: Integer;
 begin
   if CurStep = ssPostInstall then
   begin
     SelectedDomain := GetSelectedDomain();
+    SelectedTunnel := GetSelectedTunnel();
+    SelectedTunnelFile := SelectedTunnel + '.json';
     
-    // Create config.yml with interview-helper tunnel and selected domain
+    // Copy the selected tunnel credentials to credentials.json
+    TunnelFile := ExpandConstant('{app}\tunnels\' + SelectedTunnelFile);
+    CredFile := ExpandConstant('{app}\credentials.json');
+    FileCopy(TunnelFile, CredFile, False);
+    
+    // Create config.yml with the selected tunnel and domain
     ConfigFile := ExpandConstant('{app}\config.yml');
     SetArrayLength(ConfigContent, 7);
-    ConfigContent[0] := 'tunnel: interview-helper';
+    ConfigContent[0] := 'tunnel: ' + SelectedTunnel;
     ConfigContent[1] := 'credentials-file: credentials.json';
     ConfigContent[2] := '';
     ConfigContent[3] := 'ingress:';
@@ -118,13 +160,19 @@ begin
     ConfigContent[0] := SelectedDomain;
     SaveStringsToFile(DomainFile, ConfigContent, False);
     
+    // Save tunnel name to tunnel.txt
+    DomainFile := ExpandConstant('{app}\tunnel.txt');
+    SetArrayLength(ConfigContent, 1);
+    ConfigContent[0] := SelectedTunnel;
+    SaveStringsToFile(DomainFile, ConfigContent, False);
+    
     // Try to add DNS route automatically
     if MsgBox('Do you want to add the DNS route now?' + #13#10 + #13#10 +
               'This will configure your subdomain automatically.', 
               mbConfirmation, MB_YESNO) = IDYES then
     begin
       Exec(ExpandConstant('{app}\cloudflared.exe'), 
-           '--origincert "' + ExpandConstant('{app}\cert.pem') + '" tunnel route dns interview-helper ' + SelectedDomain, 
+           '--origincert "' + ExpandConstant('{app}\cert.pem') + '" tunnel route dns ' + SelectedTunnel + ' ' + SelectedDomain, 
            ExpandConstant('{app}'), 
            SW_SHOW, 
            ewWaitUntilTerminated, 
@@ -141,7 +189,6 @@ begin
       else
       begin
         MsgBox('DNS route setup failed!' + #13#10 + #13#10 +
-               'The subdomain might already exist.' + #13#10 +
                'You can try again later by running:' + #13#10 +
                'add_custom_domain.bat', 
                mbError, MB_OK);
@@ -150,7 +197,9 @@ begin
     else
     begin
       MsgBox('Installation complete!' + #13#10 + #13#10 +
-             'Domain: ' + SelectedDomain + #13#10 + #13#10 +
+             'Configuration:' + #13#10 +
+             '  Tunnel: ' + SelectedTunnel + #13#10 +
+             '  Domain: ' + SelectedDomain + #13#10 + #13#10 +
              'Run add_custom_domain.bat to add DNS route later.', 
              mbInformation, MB_OK);
     end;
