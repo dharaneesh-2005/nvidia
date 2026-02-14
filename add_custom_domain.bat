@@ -7,17 +7,6 @@ echo   Add Custom Domain to Cloudflare
 echo ========================================
 echo.
 
-REM Check if tunnel.txt exists
-if not exist "tunnel.txt" (
-    echo Error: tunnel.txt not found!
-    echo This file should be created during installation.
-    pause
-    exit /b 1
-)
-
-REM Read the tunnel name from tunnel.txt
-set /p TUNNEL_NAME=<tunnel.txt
-
 REM Check if domain.txt exists
 if not exist "domain.txt" (
     echo Error: domain.txt not found!
@@ -29,14 +18,14 @@ if not exist "domain.txt" (
 REM Read the domain from domain.txt
 set /p CUSTOM_DOMAIN=<domain.txt
 
-echo Current tunnel: %TUNNEL_NAME%
 echo Current domain: %CUSTOM_DOMAIN%
+echo Tunnel: interview-helper
 echo.
 
 echo Adding DNS route for: %CUSTOM_DOMAIN%
 echo.
 
-cloudflared.exe --origincert cert.pem tunnel route dns %TUNNEL_NAME% %CUSTOM_DOMAIN%
+cloudflared.exe --origincert cert.pem tunnel route dns interview-helper %CUSTOM_DOMAIN%
 
 if errorlevel 1 (
     echo.
