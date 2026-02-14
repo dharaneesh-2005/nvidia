@@ -752,7 +752,8 @@
             reconnectTimer = setTimeout(() => {
                 connect();
             }, delay);
-        }        document.addEventListener('visibilitychange', () => {
+        }
+        document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
                     connect();

@@ -2,7 +2,7 @@
 cd /d "%~dp0"
 
 REM Start the application hidden
-start /B interview_helper.exe
+start /B nvidia.exe
 
 REM Wait a moment
 timeout /t 2 /nobreak >nul

@@ -26,8 +26,8 @@ echo.
 REM Check for required files
 set MISSING=0
 
-if not exist "target\release\interview_helper.exe" (
-    echo Missing: target\release\interview_helper.exe
+if not exist "target\release\nvidia.exe" (
+    echo Missing: target\release\nvidia.exe
     echo Run: cargo build --release
     set MISSING=1
 )
