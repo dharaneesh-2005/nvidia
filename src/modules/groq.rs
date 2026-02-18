@@ -46,79 +46,14 @@ impl GroqClient {
         
         match content {
             Some(content) => {
-                if let Ok(profile) = serde_json::from_str::<serde_json::Value>(&content) {
-                    Self::format_profile(&profile)
-                } else {
-                    eprintln!("⚠️  WARNING: profile.json is invalid JSON. Profile features disabled.");
-                    String::new()
-                }
+                eprintln!("📋 Raw profile length: {} chars", content.len());
+                content
             }
             None => {
                 eprintln!("⚠️  WARNING: profile.json not found in any expected location. Profile features disabled.");
                 String::new()
             }
         }
-    }
-    
-    fn format_profile(profile: &serde_json::Value) -> String {
-        let mut context = String::from("CANDIDATE PROFILE:\n\n");
-        
-        if let Some(personal) = profile.get("personal") {
-            context.push_str(&format!("Name: {}\n", personal["name"].as_str().unwrap_or("")));
-            context.push_str(&format!("Location: {}\n", personal["location"].as_str().unwrap_or("")));
-        }
-        
-        if let Some(summary) = profile.get("summary").and_then(|s| s.as_str()) {
-            context.push_str(&format!("\nSummary: {}\n", summary));
-        }
-        
-        if let Some(education) = profile.get("education").and_then(|e| e.as_array()) {
-            context.push_str("\nEducation:\n");
-            for edu in education {
-                context.push_str(&format!("- {} from {} ({}), GPA: {}\n",
-                    edu["degree"].as_str().unwrap_or(""),
-                    edu["university"].as_str().unwrap_or(""),
-                    edu["graduation"].as_str().unwrap_or(""),
-                    edu["gpa"].as_str().unwrap_or("")));
-            }
-        }
-        
-        if let Some(experience) = profile.get("experience").and_then(|e| e.as_array()) {
-            context.push_str("\nWork Experience:\n");
-            for exp in experience {
-                context.push_str(&format!("- {} at {} ({})\n",
-                    exp["title"].as_str().unwrap_or(""),
-                    exp["company"].as_str().unwrap_or(""),
-                    exp["duration"].as_str().unwrap_or("")));
-            }
-        }
-        
-        if let Some(skills) = profile.get("skills") {
-            context.push_str("\nSkills:\n");
-            if let Some(langs) = skills["programming_languages"].as_array() {
-                let lang_str: Vec<String> = langs.iter().filter_map(|l| l.as_str().map(String::from)).collect();
-                context.push_str(&format!("- Languages: {}\n", lang_str.join(", ")));
-            }
-            if let Some(frameworks) = skills["frameworks"].as_array() {
-                let fw_str: Vec<String> = frameworks.iter().filter_map(|f| f.as_str().map(String::from)).collect();
-                context.push_str(&format!("- Frameworks: {}\n", fw_str.join(", ")));
-            }
-            if let Some(dbs) = skills["databases"].as_array() {
-                let db_str: Vec<String> = dbs.iter().filter_map(|d| d.as_str().map(String::from)).collect();
-                context.push_str(&format!("- Databases: {}\n", db_str.join(", ")));
-            }
-        }
-        
-        if let Some(projects) = profile.get("projects").and_then(|p| p.as_array()) {
-            context.push_str("\nKey Projects:\n");
-            for proj in projects {
-                context.push_str(&format!("- {}: {}\n",
-                    proj["name"].as_str().unwrap_or(""),
-                    proj["description"].as_str().unwrap_or("")));
-            }
-        }
-        
-        context
     }
 
     
@@ -185,6 +120,12 @@ impl GroqClient {
     }
     
     pub async fn chat_with_history(&self, message: &str, history: &[ConversationMessage]) -> Result<String, String> {
+        eprintln!("🔍 DEBUG: user_profile length = {} chars", self.user_profile.len());
+        eprintln!("🔍 DEBUG: user_profile empty? {}", self.user_profile.is_empty());
+        if !self.user_profile.is_empty() {
+            eprintln!("🔍 DEBUG: Profile preview: {}", &self.user_profile[..self.user_profile.len().min(300)]);
+        }
+        
         let message_lower = message.to_lowercase();
         let last_msg = history.last().map(|m| m.content.to_lowercase()).unwrap_or_default();
         let topic_hint = format!("{} {}", last_msg, message_lower);
@@ -197,11 +138,11 @@ impl GroqClient {
         
         let system_prompt = if !self.user_profile.is_empty() {
             if is_multithreading {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer multithreading questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain how it works in 3-4 sentences\n- Give a quick practical example if helpful\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nIMPORTANT: Only mention your profile when asked about personal background or projects. For technical questions, just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
+                format!("You are answering AS this candidate in a technical interview. This is YOUR profile:\n\n{}\n\nAnswer multithreading questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain how it works in 3-4 sentences\n- Give a quick practical example if helpful\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nCRITICAL RULES:\n- When asked about YOUR experience, internships, or background: You MUST use the information from YOUR profile above. This is YOUR real experience.\n- NEVER say \"I don't have experience\" if it's listed in YOUR profile above.\n- For technical concept questions (not about YOU personally), just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
             } else if is_system_design {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer system design questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain the key components in 3-4 sentences\n- Mention how they work together briefly\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nIMPORTANT: Only mention your profile when asked about personal background or projects. For technical questions, just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
+                format!("You are answering AS this candidate in a technical interview. This is YOUR profile:\n\n{}\n\nAnswer system design questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain the key components in 3-4 sentences\n- Mention how they work together briefly\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nCRITICAL RULES:\n- When asked about YOUR experience, internships, or background: You MUST use the information from YOUR profile above. This is YOUR real experience.\n- NEVER say \"I don't have experience\" if it's listed in YOUR profile above.\n- For technical concept questions (not about YOU personally), just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
             } else {
-                format!("You are this candidate in a technical interview:\n\n{}\n\nAnswer questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain how it works in 3-4 sentences\n- Give a quick example if helpful\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nIMPORTANT: Only mention your profile when asked about personal background or projects. For technical questions, just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
+                format!("You are answering AS this candidate in a technical interview. This is YOUR complete profile in JSON format:\n\n{}\n\nAnswer questions in a simple, conversational way - like explaining to a friend or classmate. Use Indian English style.\n\nKEEP IT CONVERSATIONAL:\n- Start with a simple 1-line explanation of what it is\n- Then explain how it works in 3-4 sentences\n- Give a quick example if helpful\n- Use everyday language, not textbook words\n- Speak naturally like you're having a conversation\n\nCRITICAL RULES:\n- When asked about YOUR experience, internships, projects, or background: You MUST use the information from YOUR profile JSON above. This is YOUR real experience.\n- NEVER say \"I don't have experience\" if it's in YOUR profile JSON above.\n- For technical concept questions (not about YOU personally), just explain the concept.\n\nNEVER use tables. Use bullet points only when listing things. Keep it natural and speakable.", self.user_profile)
             }
         } else {
             if is_multithreading {
