@@ -588,11 +588,26 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/typescript.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/sql.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/bash.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/markdown-it@13/dist/markdown-it.min.js"></script>
     <script src="/static/js/search.js"></script>
     <!-- Ensure code highlighting after rendering -->
     <script>
-        // Initialize Highlight.js
-        hljs.highlightAll();
+        // Initialize markdown-it with highlight.js
+        const md = window.markdownit({
+            html: false,
+            linkify: true,
+            typographer: true,
+            highlight: function (str, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try {
+                        return '<pre><code class="hljs ' + lang + '">' +
+                               hljs.highlight(str, { language: lang, ignoreIllegals: true }).value +
+                               '</code></pre>';
+                    } catch (__) {}
+                }
+                return '<pre><code class="hljs">' + md.utils.escapeHtml(str) + '</code></pre>';
+            }
+        });
         
         // Auto-highlight any newly added code blocks
         function highlightNewCode() {
@@ -854,288 +869,30 @@
         }
         
         function formatAnswer(text) {
-            // Groq-style markdown rendering with enhanced formatting
             if (!text || text.trim() === '') {
                 return '<p>No response</p>';
             }
             
-            let result = text;
+            // Use markdown-it to render
+            let html = md.render(text);
             
-            // Step 1: Process code blocks FIRST (before any HTML escaping)
-            const codeBlocks = [];
-            let codeBlockIndex = 0;
-            
-            // Extract and replace code blocks with placeholders
-            result = result.replace(/```([\w]*)\n?([\s\S]*?)```/g, (match, lang, code) => {
-                const placeholder = `__CODE_BLOCK_${codeBlockIndex}__`;
-                const cleanCode = code.replace(/^\n+|\n+$/g, ''); // Remove leading/trailing newlines
-                
-                // Default to cpp if no language specified or if it's a common C++ variant
-                let detectedLang = lang ? lang.toLowerCase() : '';
-                if (!detectedLang || detectedLang === 'c++' || detectedLang === 'cxx') {
-                    detectedLang = 'cpp';
-                }
-                
-                // Map common language names to highlight.js classes
-                const langMap = {
-                    'c++': 'cpp',
-                    'cpp': 'cpp',
-                    'cxx': 'cpp',
-                    'python': 'python',
-                    'py': 'python',
-                    'javascript': 'javascript',
-                    'js': 'javascript',
-                    'typescript': 'typescript',
-                    'ts': 'typescript',
-                    'java': 'java',
-                    'rust': 'rust',
-                    'go': 'go',
-                    'golang': 'go',
-                    'sql': 'sql',
-                    'bash': 'bash',
-                    'shell': 'bash',
-                    'sh': 'bash'
-                };
-                
-                const langClass = langMap[detectedLang] || 'cpp'; // Default to cpp for interview problems
-                const displayLang = detectedLang === 'cpp' ? 'C++' : (lang || 'Code');
-                
-                codeBlocks[codeBlockIndex] = `<div class="code-block">
+            // Wrap code blocks with custom header for copy button
+            html = html.replace(/<pre><code class="hljs ([^"]+)">([\s\S]*?)<\/code><\/pre>/g, function(match, lang, code) {
+                const displayLang = lang === 'cpp' ? 'C++' : lang.charAt(0).toUpperCase() + lang.slice(1);
+                return `<div class="code-block">
                     <div class="code-header">
                         <span class="code-lang">${displayLang}</span>
                         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
                     </div>
-                    <pre><code class="hljs ${langClass}">${escapeHtml(cleanCode)}</code></pre>
+                    <pre><code class="hljs ${lang}">${code}</code></pre>
                 </div>`;
-                
-                codeBlockIndex++;
-                return placeholder;
             });
             
-            // Step 2: Process inline code (before HTML escaping)
-            const inlineCodes = [];
-            let inlineCodeIndex = 0;
+            // Wrap tables with custom styling
+            html = html.replace(/<table>/g, '<div class="markdown-table"><table>');
+            html = html.replace(/<\/table>/g, '</table></div>');
             
-            result = result.replace(/`([^`\n]+)`/g, (match, code) => {
-                const placeholder = `__INLINE_CODE_${inlineCodeIndex}__`;
-                inlineCodes[inlineCodeIndex] = `<code>${escapeHtml(code)}</code>`;
-                inlineCodeIndex++;
-                return placeholder;
-            });
-            
-            // Step 3: Now escape HTML for the remaining text
-            result = escapeHtml(result);
-            
-            // Step 4: Process markdown formatting (Groq-style)
-            // Bold and italic (non-greedy matching, avoid crossing newlines)
-            result = result.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
-            result = result.replace(/\*([^*\n]+?)\*/g, '<em>$1</em>');
-            
-            // Headings with proper spacing (Groq-style classes)
-            result = result.replace(/^### (.+)$/gm, '<h3 class="heading3">$1</h3>');
-            result = result.replace(/^## (.+)$/gm, '<h2 class="heading2">$1</h2>');
-            result = result.replace(/^# (.+)$/gm, '<h1 class="heading1">$1</h1>');
-            
-            // Horizontal rules
-            result = result.replace(/^---$/gm, '<hr class="my-10">');
-            
-            // Step 5: Process tables (Groq-style)
-            result = formatTables(result);
-            
-            // Step 6: Process lists with proper nesting and RTL support
-            const lines = result.split('\n');
-            const processedLines = [];
-            let inList = false;
-            let inOrderedList = false;
-            
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i];
-                const isUnorderedListItem = /^- (.+)/.test(line);
-                const isOrderedListItem = /^\d+\. (.+)/.test(line);
-                const isListItem = isUnorderedListItem || isOrderedListItem;
-                
-                // Handle list transitions
-                if (isUnorderedListItem && !inList) {
-                    processedLines.push('<ul class="ml-5 mb-4 list-disc">');
-                    inList = true;
-                    inOrderedList = false;
-                } else if (isOrderedListItem && !inOrderedList) {
-                    if (inList) processedLines.push('</ul>');
-                    processedLines.push('<ol class="ml-5 mb-4 list-decimal">');
-                    inList = true;
-                    inOrderedList = true;
-                } else if (!isListItem && inList) {
-                    processedLines.push(inOrderedList ? '</ol>' : '</ul>');
-                    inList = false;
-                    inOrderedList = false;
-                }
-                
-                if (isUnorderedListItem) {
-                    processedLines.push(line.replace(/^- (.+)/, '<li class="ml-5">$1</li>'));
-                } else if (isOrderedListItem) {
-                    processedLines.push(line.replace(/^\d+\. (.+)/, '<li class="ml-5">$1</li>'));
-                } else {
-                    processedLines.push(line);
-                }
-            }
-            
-            if (inList) {
-                processedLines.push(inOrderedList ? '</ol>' : '</ul>');
-            }
-            
-            result = processedLines.join('\n');
-            
-            // Step 7: Process paragraphs with proper spacing and RTL detection
-            const paragraphs = result.split('\n\n');
-            const formattedParagraphs = paragraphs.map(p => {
-                const trimmed = p.trim();
-                if (!trimmed) return '';
-                
-                // Don't wrap code blocks, headings, lists, tables, or hr
-                if (trimmed.includes('__CODE_BLOCK_') || 
-                    trimmed.startsWith('<h') || 
-                    trimmed.startsWith('<ul>') || 
-                    trimmed.startsWith('<ol>') ||
-                    trimmed.startsWith('<li>') ||
-                    trimmed.startsWith('<table>') ||
-                    trimmed.startsWith('<div class="markdown-table">') ||
-                    trimmed.startsWith('<hr>')) {
-                    return trimmed;
-                }
-                
-                // Convert single line breaks to <br> within paragraphs
-                const withBreaks = trimmed.replace(/\n/g, '<br>');
-                
-                // Detect RTL text (basic detection for Arabic, Hebrew, etc.)
-                const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-                const isRTL = rtlPattern.test(withBreaks);
-                
-                return `<p class="${isRTL ? 'text-right' : 'text-left'} mb-4"${isRTL ? ' dir="rtl"' : ''}>${withBreaks}</p>`;
-            });
-            
-            result = formattedParagraphs.join('\n\n');
-            
-            // Step 8: Restore code blocks
-            for (let i = 0; i < codeBlocks.length; i++) {
-                result = result.replace(`__CODE_BLOCK_${i}__`, codeBlocks[i]);
-            }
-            
-            // Step 9: Restore inline code
-            for (let i = 0; i < inlineCodes.length; i++) {
-                result = result.replace(`__INLINE_CODE_${i}__`, inlineCodes[i]);
-            }
-            
-            // Step 10: Trigger syntax highlighting with Highlight.js
-            setTimeout(() => {
-                document.querySelectorAll('pre code:not(.hljs)').forEach(el => {
-                    try {
-                        // Auto-detect language if not specified
-                        hljs.highlightElement(el);
-                        console.log('Highlighted element:', el.className);
-                    } catch (error) {
-                        console.warn('Highlight.js highlighting failed:', error);
-                        // Fallback: at least ensure proper formatting
-                        el.classList.add('hljs');
-                    }
-                });
-                
-                // Force re-highlight any remaining unhighlighted code
-                setTimeout(() => {
-                    document.querySelectorAll('pre code:not(.hljs)').forEach(el => {
-                        try {
-                            hljs.highlightElement(el);
-                        } catch (e) {
-                            console.warn('Fallback highlighting failed:', e);
-                            el.classList.add('hljs');
-                        }
-                    });
-                }, 200);
-            }, 100);
-            
-            return result;
-        }
-        
-        function formatTables(text) {
-            const lines = text.split('\n');
-            let result = [];
-            let inTable = false;
-            let tableRows = [];
-            
-            for (let i = 0; i < lines.length; i++) {
-                const line = lines[i].trim();
-                
-                if (line.includes('|')) {
-                    if (!inTable) {
-                        inTable = true;
-                        tableRows = [];
-                    }
-                    
-                    // Skip separator lines (e.g., |---|---|)
-                    if (line.match(/^\|?[\s:-]+\|[\s:-]+/)) {
-                        continue;
-                    }
-                    
-                    const cells = line.split('|').map(c => c.trim()).filter(c => c);
-                    tableRows.push(cells);
-                } else {
-                    if (inTable && tableRows.length > 0) {
-                        let table = '<div class="markdown-table"><table class="table-auto w-full mb-4">';
-                        tableRows.forEach((row, idx) => {
-                            if (idx === 0) {
-                                table += '<thead class="text-left"><tr>';
-                                row.forEach(cell => {
-                                    // Detect RTL content in table cells
-                                    const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-                                    const isRTL = rtlPattern.test(cell);
-                                    table += `<th class="p-2 font-bold${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</th>`;
-                                });
-                                table += '</tr></thead><tbody>';
-                            } else {
-                                table += '<tr>';
-                                row.forEach(cell => {
-                                    // Detect RTL content in table cells
-                                    const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-                                    const isRTL = rtlPattern.test(cell);
-                                    table += `<td class="p-2${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</td>`;
-                                });
-                                table += '</tr>';
-                            }
-                        });
-                        table += '</tbody></table></div>';
-                        result.push(table);
-                        tableRows = [];
-                        inTable = false;
-                    }
-                    result.push(line);
-                }
-            }
-            
-            if (inTable && tableRows.length > 0) {
-                let table = '<div class="markdown-table"><table class="table-auto w-full mb-4">';
-                tableRows.forEach((row, idx) => {
-                    if (idx === 0) {
-                        table += '<thead class="text-left"><tr>';
-                        row.forEach(cell => {
-                            const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-                            const isRTL = rtlPattern.test(cell);
-                            table += `<th class="p-2 font-bold${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</th>`;
-                        });
-                        table += '</tr></thead><tbody>';
-                    } else {
-                        table += '<tr>';
-                        row.forEach(cell => {
-                            const rtlPattern = /[\u0590-\u05FF\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]/;
-                            const isRTL = rtlPattern.test(cell);
-                            table += `<td class="p-2${isRTL ? ' text-right' : ''}"${isRTL ? ' dir="rtl"' : ''}>${cell}</td>`;
-                        });
-                        table += '</tr>';
-                    }
-                });
-                table += '</tbody></table></div>';
-                result.push(table);
-            }
-            
-            return result.join('\n');
+            return html;
         }
         
         function copyCode(btn) {
