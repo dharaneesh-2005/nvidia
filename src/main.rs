@@ -180,6 +180,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 if let Some(Ok(axum::extract::ws::Message::Text(text))) = msg {
                     if text == "capture_screen" {
                         tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_mcq" {
+                        tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
                         tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "search_closed" {
@@ -448,6 +450,43 @@ async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClie
         }
         Err(e) => {
             error!("Screen capture failed: {}", e);
+        }
+    }
+}
+
+async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    info!("Processing MCQ screenshot with Maverick model...");
+    
+    send_or_buffer(&tx, serde_json::json!({
+        "type": "transcription",
+        "text": "Analyzing MCQ..."
+    }).to_string(), &buffer, &connected).await;
+    
+    match ScreenCapture::capture_now() {
+        Ok(image_data) => {
+            match groq.answer_mcq_direct(&image_data).await {
+                Ok(answer) => {
+                    info!("✓ MCQ answer received: {}", &answer[..answer.len().min(100)]);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": answer
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("MCQ analysis error: {}", e);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error analyzing MCQ: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Err(e) => {
+            error!("MCQ capture failed: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Capture failed: {}", e)
+            }).to_string(), &buffer, &connected).await;
         }
     }
 }

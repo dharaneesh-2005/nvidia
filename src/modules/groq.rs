@@ -290,6 +290,52 @@ impl GroqClient {
         self.analyze_images_internal(&refs, history).await
     }
     
+    pub async fn answer_mcq_direct(&self, image_base64: &str) -> Result<String, String> {
+        let prompt = "Always mention option number along with the answer";
+        
+        let payload = json!({
+            "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:image/png;base64,{}", image_base64)
+                            }
+                        }
+                    ]
+                }
+            ],
+            "temperature": 0.5,
+            "max_tokens": 1000,
+            "top_p": 1,
+            "stream": false
+        });
+        
+        let response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        Ok(content)
+    }
+    
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
