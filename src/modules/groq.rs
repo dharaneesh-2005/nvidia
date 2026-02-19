@@ -294,7 +294,7 @@ impl GroqClient {
         let prompt = "You are an expert at solving multiple choice questions. Analyze the image carefully and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
         
         let payload = json!({
-            "model": "qwen/qwen3-vl-8b-thinking",
+            "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
             "messages": [
                 {
                     "role": "user",
@@ -312,16 +312,14 @@ impl GroqClient {
                     ]
                 }
             ],
-            "temperature": 0.2,
-            "max_tokens": 2048,
-            "top_p": 0.9
+            "temperature": 1,
+            "max_tokens": 1024,
+            "top_p": 1
         });
         
         let response = self.client
-            .post("https://openrouter.ai/api/v1/chat/completions")
-            .header("Authorization", "Bearer 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")
-            .header("HTTP-Referer", "https://github.com/nvidia-interview-helper")
-            .header("X-Title", "Nvidia Interview Helper")
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
@@ -331,7 +329,7 @@ impl GroqClient {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("OpenRouter API error {}: {}", status, error_text));
+            return Err(format!("Groq API error {}: {}", status, error_text));
         }
         
         let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
