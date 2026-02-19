@@ -177,7 +177,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-20b",
             "messages": messages,
             "temperature": 0.5,
-            "max_tokens": 600
+            "max_tokens": 1500
         });
         
         let response = self.client
