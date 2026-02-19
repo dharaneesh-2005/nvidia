@@ -849,6 +849,23 @@
                 currentAnswer = msg.querySelector('.msg-a .msg-content');
                 saveChat();
                 scrollToBottom();
+            } else if (data.type === 'update_transcription') {
+                // Update the last message's question text instead of creating new one
+                if (currentAnswer) {
+                    const lastMessage = currentAnswer.closest('.message');
+                    if (lastMessage) {
+                        const questionContent = lastMessage.querySelector('.msg-q .msg-content');
+                        if (questionContent) {
+                            questionContent.textContent = data.text;
+                            // Update solve button
+                            const solveBtn = lastMessage.querySelector('.solve-btn');
+                            if (solveBtn) {
+                                solveBtn.setAttribute('onclick', `solveProblem(this, '${escapeHtml(data.text).replace(/'/g, "\\'")}')`);  
+                            }
+                            saveChat();
+                        }
+                    }
+                }
             } else if (data.type === 'answer' && currentAnswer) {
                 console.log('🔍 [SEARCH LOG] Received answer from AI model (length: ' + data.text.length + ')');
                 console.log('🔍 [SEARCH LOG] Answer preview:', data.text.substring(0, 200) + (data.text.length > 200 ? '...' : ''));

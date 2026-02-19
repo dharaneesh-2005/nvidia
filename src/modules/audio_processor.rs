@@ -343,30 +343,64 @@ impl AudioProcessor {
                     info!("Sending to AI for answer...");
                     let history = self.conversation.read().await.clone();
                     
-                    match self.groq_client.chat_with_history(text, &history).await {
-                        Ok(answer) => {
-                            let total_time = start_time.elapsed();
-                            info!("Answer received ({:?} total): {}", total_time, answer.chars().take(50).collect::<String>());
-                            
-                            self.conversation.write().await.push(ConversationMessage {
-                                role: "assistant".to_string(),
-                                content: answer.clone(),
-                            });
-                            
-                            self.send_or_buffer(serde_json::json!({
-                                "type": "answer",
-                                "text": answer,
-                                "metrics": {
-                                    "total_time_ms": total_time.as_millis()
+                    // Retry mechanism with 3-second timeout
+                    let mut attempt = 1;
+                    let max_attempts = 3;
+                    let timeout_duration = Duration::from_secs(3);
+                    
+                    loop {
+                        info!("Attempt {} of {} for AI response", attempt, max_attempts);
+                        
+                        let result = tokio::time::timeout(
+                            timeout_duration,
+                            self.groq_client.chat_with_history(text, &history)
+                        ).await;
+                        
+                        match result {
+                            Ok(Ok(answer)) => {
+                                let total_time = start_time.elapsed();
+                                info!("Answer received ({:?} total): {}", total_time, answer.chars().take(50).collect::<String>());
+                                
+                                self.conversation.write().await.push(ConversationMessage {
+                                    role: "assistant".to_string(),
+                                    content: answer.clone(),
+                                });
+                                
+                                self.send_or_buffer(serde_json::json!({
+                                    "type": "answer",
+                                    "text": answer,
+                                    "metrics": {
+                                        "total_time_ms": total_time.as_millis()
+                                    }
+                                }).to_string()).await;
+                                break;
+                            }
+                            Ok(Err(e)) => {
+                                error!("Chat error on attempt {}: {}", attempt, e);
+                                if attempt < max_attempts {
+                                    info!("Retrying after error...");
+                                    attempt += 1;
+                                    continue;
                                 }
-                            }).to_string()).await;
-                        }
-                        Err(e) => {
-                            error!("Chat error: {}", e);
-                            self.send_or_buffer(serde_json::json!({
-                                "type": "error",
-                                "message": format!("AI Error: {}", e)
-                            }).to_string()).await;
+                                self.send_or_buffer(serde_json::json!({
+                                    "type": "answer",
+                                    "text": format!("Error: {}", e)
+                                }).to_string()).await;
+                                break;
+                            }
+                            Err(_) => {
+                                error!("Request timed out after {} seconds (attempt {})", timeout_duration.as_secs(), attempt);
+                                if attempt < max_attempts {
+                                    info!("Retrying after timeout...");
+                                    attempt += 1;
+                                    continue;
+                                }
+                                self.send_or_buffer(serde_json::json!({
+                                    "type": "answer",
+                                    "text": "Request timed out after 3 retries. Please try again."
+                                }).to_string()).await;
+                                break;
+                            }
                         }
                     }
                 }

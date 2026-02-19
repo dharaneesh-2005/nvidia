@@ -334,8 +334,9 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                                     Ok(transcription) => {
                                                         let text = transcription.trim();
                                                         if !text.is_empty() {
+                                                            // Update the same box with transcription
                                                             send_or_buffer(&tx_clone, serde_json::json!({
-                                                                "type": "transcription",
+                                                                "type": "update_transcription",
                                                                 "text": text
                                                             }).to_string(), &buffer, &connected).await;
 
