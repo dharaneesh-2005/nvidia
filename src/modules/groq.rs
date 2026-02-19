@@ -294,7 +294,7 @@ impl GroqClient {
         let prompt = "You are an expert at solving multiple choice questions. Analyze the image carefully and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
         
         let payload = json!({
-            "model": "nvidia/nemotron-nano-12b-v2-vl:free",
+            "model": "qwen/qwen3-vl-8b-thinking",
             "messages": [
                 {
                     "role": "user",
