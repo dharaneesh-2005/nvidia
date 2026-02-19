@@ -970,10 +970,206 @@
         
         function captureScreen() {
             if (currentMode === 'mcq') {
-                sendMessage('capture_mcq');
+                // Use browser's native screenshot API for region selection
+                if ('getDisplayMedia' in navigator.mediaDevices) {
+                    captureMCQRegion();
+                } else {
+                    alert('Screen capture not supported. Please use Ctrl+Alt+X hotkey instead.');
+                }
             } else {
                 sendMessage('capture_screen');
             }
+        }
+        
+        async function captureMCQRegion() {
+            try {
+                // Capture full screen first
+                const stream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { mediaSource: 'screen' }
+                });
+                
+                const video = document.createElement('video');
+                video.srcObject = stream;
+                video.play();
+                
+                // Wait for video to load
+                await new Promise(resolve => {
+                    video.onloadedmetadata = resolve;
+                });
+                
+                // Capture frame
+                const canvas = document.createElement('canvas');
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0);
+                
+                // Stop stream
+                stream.getTracks().forEach(track => track.stop());
+                
+                // Show cropping UI
+                showCropUI(canvas);
+                
+            } catch (error) {
+                console.error('Screen capture failed:', error);
+                alert('Screen capture cancelled or failed. Use Ctrl+Alt+X hotkey instead.');
+            }
+        }
+        
+        function showCropUI(canvas) {
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'cropOverlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100vw;
+                height: 100vh;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 10000;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                justify-content: center;
+            `;
+            
+            const container = document.createElement('div');
+            container.style.cssText = `
+                max-width: 90vw;
+                max-height: 80vh;
+                background: #2a2a2a;
+                border-radius: 12px;
+                padding: 20px;
+                display: flex;
+                flex-direction: column;
+                gap: 12px;
+            `;
+            
+            const img = document.createElement('img');
+            img.src = canvas.toDataURL();
+            img.style.cssText = `
+                max-width: 100%;
+                max-height: 60vh;
+                object-fit: contain;
+                cursor: crosshair;
+                border: 2px solid #444;
+                border-radius: 8px;
+            `;
+            
+            const instructions = document.createElement('div');
+            instructions.textContent = 'Click and drag to select MCQ region';
+            instructions.style.cssText = `
+                color: #e0e0e0;
+                font-size: 14px;
+                text-align: center;
+            `;
+            
+            const btnContainer = document.createElement('div');
+            btnContainer.style.cssText = `
+                display: flex;
+                gap: 8px;
+                justify-content: center;
+            `;
+            
+            const cancelBtn = document.createElement('button');
+            cancelBtn.textContent = 'Cancel';
+            cancelBtn.style.cssText = `
+                padding: 10px 20px;
+                background: rgba(231, 76, 60, 0.3);
+                border: 1px solid rgba(231, 76, 60, 0.5);
+                color: #fff;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+            `;
+            cancelBtn.onclick = () => document.body.removeChild(overlay);
+            
+            const cropBtn = document.createElement('button');
+            cropBtn.textContent = 'Use Full Image';
+            cropBtn.style.cssText = `
+                padding: 10px 20px;
+                background: rgba(16, 163, 127, 0.3);
+                border: 1px solid rgba(16, 163, 127, 0.5);
+                color: #fff;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+            `;
+            cropBtn.onclick = () => {
+                const base64 = canvas.toDataURL('image/png').split(',')[1];
+                sendMCQImage(base64);
+                document.body.removeChild(overlay);
+            };
+            
+            btnContainer.appendChild(cancelBtn);
+            btnContainer.appendChild(cropBtn);
+            
+            container.appendChild(instructions);
+            container.appendChild(img);
+            container.appendChild(btnContainer);
+            overlay.appendChild(container);
+            document.body.appendChild(overlay);
+            
+            // Simple crop selection
+            let startX, startY, isDrawing = false;
+            const cropCanvas = document.createElement('canvas');
+            const cropCtx = cropCanvas.getContext('2d');
+            
+            img.onmousedown = (e) => {
+                isDrawing = true;
+                const rect = img.getBoundingClientRect();
+                startX = (e.clientX - rect.left) * (canvas.width / rect.width);
+                startY = (e.clientY - rect.top) * (canvas.height / rect.height);
+            };
+            
+            img.onmouseup = (e) => {
+                if (!isDrawing) return;
+                isDrawing = false;
+                
+                const rect = img.getBoundingClientRect();
+                const endX = (e.clientX - rect.left) * (canvas.width / rect.width);
+                const endY = (e.clientY - rect.top) * (canvas.height / rect.height);
+                
+                const x = Math.min(startX, endX);
+                const y = Math.min(startY, endY);
+                const w = Math.abs(endX - startX);
+                const h = Math.abs(endY - startY);
+                
+                if (w > 10 && h > 10) {
+                    cropCanvas.width = w;
+                    cropCanvas.height = h;
+                    cropCtx.drawImage(canvas, x, y, w, h, 0, 0, w, h);
+                    
+                    const base64 = cropCanvas.toDataURL('image/png').split(',')[1];
+                    sendMCQImage(base64);
+                    document.body.removeChild(overlay);
+                }
+            };
+        }
+        
+        function sendMCQImage(base64) {
+            const chat = document.getElementById('chat');
+            const msg = document.createElement('div');
+            msg.className = 'message';
+            msg.innerHTML = `
+                <div class="msg-q">
+                    <div class="msg-label">Q</div>
+                    <div class="msg-content">MCQ Screenshot</div>
+                </div>
+                <div class="msg-a">
+                    <div class="msg-label">A</div>
+                    <div class="msg-content"><span class="loading">🤔 Analyzing MCQ...</span></div>
+                </div>
+            `;
+            chat.appendChild(msg);
+            currentAnswer = msg.querySelector('.msg-a .msg-content');
+            saveChat();
+            
+            sendMessage(JSON.stringify({
+                type: 'mcq_image',
+                image: base64
+            }));
         }
         
         function switchMode(mode) {

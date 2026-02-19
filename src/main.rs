@@ -316,6 +316,30 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 } else {
                                     info!("🔍 [SEARCH LOG] Empty question received, ignoring");
                                 }
+                            } else if msg_type == "mcq_image" {
+                                let image_base64 = json.get("image").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                if !image_base64.is_empty() {
+                                    let tx_clone = state.tx.clone();
+                                    let groq = state.groq.clone();
+                                    let buffer = state.message_buffer.clone();
+                                    let connected = state.client_connections.clone();
+                                    tokio::spawn(async move {
+                                        match groq.answer_mcq_direct(&image_base64).await {
+                                            Ok(answer) => {
+                                                send_or_buffer(&tx_clone, serde_json::json!({
+                                                    "type": "answer",
+                                                    "text": answer
+                                                }).to_string(), &buffer, &connected).await;
+                                            }
+                                            Err(e) => {
+                                                send_or_buffer(&tx_clone, serde_json::json!({
+                                                    "type": "answer",
+                                                    "text": format!("Error: {}", e)
+                                                }).to_string(), &buffer, &connected).await;
+                                            }
+                                        }
+                                    });
+                                }
                             } else if msg_type == "mic_audio" {
                                 let audio_base64 = json.get("audio").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 if !audio_base64.is_empty() {
