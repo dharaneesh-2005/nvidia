@@ -291,7 +291,7 @@ impl GroqClient {
     }
     
     pub async fn answer_mcq_direct(&self, image_base64: &str) -> Result<String, String> {
-        let prompt = "You are an expert at solving multiple choice questions. Analyze the image and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
+        let prompt = "You are an expert at solving multiple choice questions. Analyze the image carefully and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
         
         let payload = json!({
             "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
@@ -313,7 +313,7 @@ impl GroqClient {
                 }
             ],
             "temperature": 0.2,
-            "max_tokens": 150,
+            "max_tokens": 2048,
             "top_p": 0.9,
             "stream": false
         });
