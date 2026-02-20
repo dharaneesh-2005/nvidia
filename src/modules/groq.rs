@@ -208,7 +208,7 @@ impl GroqClient {
         }
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let mut system_prompt = String::from("You are Scout, a technical interview vision assistant. Extract information from this screenshot in JSON format.\n\nFirst, identify the TYPE:\n- DSA_PROBLEM: Coding problem (LeetCode/HackerRank style) with input/output examples\n- SYSTEM_DESIGN: Architecture/design question\n- LOGICAL_PUZZLE: Text-based reasoning problem\n- DEBUG_ERROR: Code with error messages\n- GENERAL: Other technical content\n\nFor DSA_PROBLEM, extract:\n{\n  \"type\": \"DSA_PROBLEM\",\n  \"title\": \"problem name\",\n  \"description\": \"full problem statement\",\n  \"input_format\": \"how input is given\",\n  \"output_format\": \"expected output format\",\n  \"constraints\": [\"list of constraints\"],\n  \"examples\": [{\"input\": \"...\", \"output\": \"...\", \"explanation\": \"...\"}],\n  \"confidence\": 0.95\n}\n\nFor SYSTEM_DESIGN:\n{\n  \"type\": \"SYSTEM_DESIGN\",\n  \"question\": \"design question\",\n  \"requirements\": [\"list of requirements\"],\n  \"confidence\": 0.90\n}\n\nFor DEBUG_ERROR:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"code\": \"extracted code only\",\n  \"error_message\": \"error text\",\n  \"confidence\": 0.85\n}\n\nFor GENERAL:\n{\n  \"type\": \"GENERAL\",\n  \"content\": \"description of screenshot\",\n  \"confidence\": 0.80\n}\n\nIMPORTANT:\n- Extract ALL visible text accurately\n- Include confidence score (0.0-1.0)\n- If confidence < 0.7, set \"needs_recapture\": true\n- Ignore UI elements, focus on problem content\n- Return ONLY valid JSON, no extra text");
+        let mut system_prompt = String::from("You are Scout, a technical interview vision assistant. Extract information from this screenshot in JSON format.\n\nFirst, identify the TYPE:\n- DSA_PROBLEM: Coding problem (LeetCode/HackerRank style) with input/output examples\n- SYSTEM_DESIGN: Architecture/design question\n- LOGICAL_PUZZLE: Text-based reasoning problem\n- DEBUG_ERROR: Code with error messages\n- GENERAL: Other technical content\n\nFor DSA_PROBLEM, extract:\n{\n  \"type\": \"DSA_PROBLEM\",\n  \"title\": \"problem name\",\n  \"description\": \"full problem statement\",\n  \"input_format\": \"how input is given\",\n  \"output_format\": \"expected output format\",\n  \"constraints\": [\"list of constraints\"],\n  \"examples\": [{\"input\": \"...\", \"output\": \"...\", \"explanation\": \"...\"}],\n  \"predefined_code\": \"if present, extract the exact function signature like 'class Solution { public: long long minimumPerimeter(long long neededApples) { } };'\",\n  \"confidence\": 0.95\n}\n\nFor SYSTEM_DESIGN:\n{\n  \"type\": \"SYSTEM_DESIGN\",\n  \"question\": \"design question\",\n  \"requirements\": [\"list of requirements\"],\n  \"confidence\": 0.90\n}\n\nFor DEBUG_ERROR:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"code\": \"extracted code only\",\n  \"predefined_code\": \"if present, extract the exact function signature\",\n  \"error_message\": \"error text\",\n  \"confidence\": 0.85\n}\n\nFor GENERAL:\n{\n  \"type\": \"GENERAL\",\n  \"content\": \"description of screenshot\",\n  \"confidence\": 0.80\n}\n\nIMPORTANT:\n- Extract ALL visible text accurately\n- If there's predefined code template (like class Solution with function signature), extract it EXACTLY\n- Include confidence score (0.0-1.0)\n- If confidence < 0.7, set \"needs_recapture\": true\n- Ignore UI elements, focus on problem content\n- Return ONLY valid JSON, no extra text");
         
         if images.len() > 1 {
             system_prompt.push_str("\n\nMULTI-IMAGE INSTRUCTIONS:\n- The following screenshots are consecutive parts of the same question.\n- Combine ALL visible text across images into a single coherent extraction.\n- If text overlaps between images, de-duplicate it.\n- Do not omit any sections, constraints, or examples.");
@@ -293,7 +293,7 @@ impl GroqClient {
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let system_prompt = "You are a technical interview coding expert. Explain solutions in simple, conversational Indian English - like explaining to a classmate.\n\nProvide the solution in this EXACT format:\n\nBRUTE FORCE APPROACH\nIntuition: [Explain the basic idea in 2-3 simple sentences. What's the straightforward way to solve this?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete brute force implementation\n};\n```\n\nOPTIMAL APPROACH\nIntuition: [Explain the better idea in 2-3 simple sentences. What's the key insight that makes it faster?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete optimal implementation\n};\n```\n\nSUMMARY\n[In 2-3 sentences: Compare both approaches. Why is brute force slow? Why is optimal better?]\n\nIMPORTANT:\n- Keep intuition simple and conversational - speak naturally\n- Write complete, working C++ code\n- Use clear variable names\n- Add brief comments in code if helpful\n- Make it easy to understand and speak out loud";
+        let system_prompt = "You are a technical interview coding expert. Explain solutions in simple, conversational Indian English - like explaining to a classmate.\n\nProvide the solution in this EXACT format:\n\nBRUTE FORCE APPROACH\nIntuition: [Explain the basic idea in 2-3 simple sentences. What's the straightforward way to solve this?]\nTime: O(...) - where [explain what each variable means, e.g., 'n is array size' or 'V is vertices, E is edges']\nSpace: O(...) - where [explain what each variable means]\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int t;\n    cin >> t;\n    while(t--) {\n        // solution here\n    }\n    return 0;\n}\n```\n\nOPTIMAL APPROACH\nIntuition: [Explain the better idea in 2-3 simple sentences. What's the key insight that makes it faster?]\nTime: O(...) - where [explain what each variable means]\nSpace: O(...) - where [explain what each variable means]\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    int t;\n    cin >> t;\n    while(t--) {\n        // optimized solution here\n    }\n    return 0;\n}\n```\n\nSUMMARY\n[In 2-3 sentences: Compare both approaches. Why is brute force slow? Why is optimal better?]\n\nIMPORTANT RULES:\n- Use #include <bits/stdc++.h> and using namespace std;\n- Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n- Do NOT use lambda functions, structs, or classes\n- Keep solution SIMPLE and beginner-friendly\n- Use short variable names (a, b, n, m, x, y, etc.)\n- No extra functions - write everything inside main()\n- No over-optimization - just straightforward logic\n- Code should look like typical Div-3 CodeChef submission\n- For Time/Space complexity, ALWAYS explain what each variable means (e.g., O(V+E) where V=vertices, E=edges)\n- Keep intuition simple and conversational - speak naturally\n- Make it easy to understand and speak out loud";
         
         let mut messages = vec![json!({
             "role": "system",
@@ -316,7 +316,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 2000,
+            "max_tokens": 4000,
             "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
@@ -355,7 +355,7 @@ impl GroqClient {
     pub async fn debug_code_error(&self, image_base64: &str, history: &[ConversationMessage]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let vision_prompt = "Extract code and error from this screenshot in JSON format:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"language\": \"C++/Python/Java\",\n  \"code\": \"extracted code only, ignore UI\",\n  \"error_message\": \"exact error text\",\n  \"test_case_info\": \"if TLE or wrong output\",\n  \"confidence\": 0.90\n}\n\nIMPORTANT: Extract ONLY the code, ignore buttons, menus, UI elements. Return valid JSON only.";
+        let vision_prompt = "Extract code and error from this screenshot in JSON format:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"language\": \"C++/Python/Java\",\n  \"code\": \"extracted code only, ignore UI\",\n  \"predefined_code\": \"if present, extract the exact function signature like 'class Solution { public: long long minimumPerimeter(long long neededApples) { } };'\",\n  \"error_message\": \"exact error text\",\n  \"test_case_info\": \"if TLE or wrong output\",\n  \"confidence\": 0.90\n}\n\nIMPORTANT: Extract ONLY the code, ignore buttons, menus, UI elements. If there's a predefined function signature, extract it EXACTLY. Return valid JSON only.";
         
         let vision_payload = json!({
             "model": "meta-llama/llama-4-scout-17b-16e-instruct",
@@ -406,7 +406,7 @@ impl GroqClient {
             }
         }
         
-        let debug_prompt = format!("Error analysis:\n{}\n{}\n\nProvide fix in this format:\n\nERROR IDENTIFIED\n[Brief explanation]\nFIX REQUIRED\n[Specific changes]\nCORRECTED CODE\n```cpp\n// Fixed C++ code\nclass Solution {{\npublic:\n    // Corrected implementation\n}};\n```\n\nIMPORTANT:\n- NEVER use tables, always use bullet points\n- Keep minimal spacing\n- Format as bullet points for easy verbal delivery", error_description, context);
+        let debug_prompt = format!("Error analysis:\n{}\n{}\n\nProvide fix in this format:\n\nERROR IDENTIFIED\n[Brief explanation]\nFIX REQUIRED\n[Specific changes]\nCORRECTED CODE\nTime: O(...) - where [explain what each variable means]\nSpace: O(...) - where [explain what each variable means]\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {{\n    int t;\n    cin >> t;\n    while(t--) {{\n        // corrected solution here\n    }}\n    return 0;\n}}\n```\n\nIMPORTANT RULES:\n- Use #include <bits/stdc++.h> and using namespace std;\n- Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n- Do NOT use lambda functions, structs, or classes\n- Keep solution SIMPLE and beginner-friendly\n- Use short variable names (a, b, n, m, x, y, etc.)\n- No extra functions - write everything inside main()\n- No over-optimization - just straightforward logic\n- Code should look like typical Div-3 CodeChef submission\n- If there's a predefined function signature in the error analysis, use the EXACT parameter names and types from it\n- For Time/Space complexity, ALWAYS explain what each variable means (e.g., O(V+E) where V=vertices, E=edges)\n- NEVER use tables, always use bullet points\n- Keep minimal spacing\n- Format as bullet points for easy verbal delivery", error_description, context);
         
         let mut messages = vec![json!({
             "role": "system",
@@ -429,7 +429,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 18801,
+            "max_tokens": 4000,
             "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
@@ -500,7 +500,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 18801,
+            "max_tokens": 4000,
             "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
         });
         
