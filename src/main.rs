@@ -934,6 +934,14 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
                 info!("Detected DSA_PROBLEM, formatting data for OSS-120B...");
                 let problem_data = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cleaned_analysis) {
                     let mut formatted = String::new();
+                    
+                    // Add predefined code structure if present
+                    if let Some(predefined) = parsed["predefined_code"].as_str() {
+                        if !predefined.is_empty() {
+                            formatted.push_str(&format!("Predefined Code Structure (use this EXACT structure):\n{}\n\n", predefined));
+                        }
+                    }
+                    
                     formatted.push_str(&format!("Problem: {}\n\n", parsed["title"].as_str().unwrap_or("Coding Problem")));
                     formatted.push_str(&format!("Description:\n{}\n\n", parsed["description"].as_str().unwrap_or("")));
                     formatted.push_str(&format!("Input Format: {}\n", parsed["input_format"].as_str().unwrap_or("")));
