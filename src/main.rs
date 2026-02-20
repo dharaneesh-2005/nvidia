@@ -185,6 +185,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "capture_mcq_snip" {
                         tokio::spawn(handle_mcq_snip_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_interview_snip" {
+                        tokio::spawn(handle_interview_snip_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
                         tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "search_closed" {
@@ -513,6 +515,52 @@ async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>
             send_or_buffer(&tx, serde_json::json!({
                 "type": "answer",
                 "text": format!("Capture failed: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+    }
+}
+
+async fn handle_interview_snip_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    info!("Launching region selection for Interview mode...");
+    
+    let result = tokio::task::spawn_blocking(|| {
+        SnipTool::capture_region()
+    }).await;
+    
+    match result {
+        Ok(Ok(image_data)) => {
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "transcription",
+                "text": "Analyzing..."
+            }).to_string(), &buffer, &connected).await;
+            
+            match groq.answer_interview_direct(&image_data).await {
+                Ok(answer) => {
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": answer
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Ok(Err(e)) => {
+            error!("Region capture failed: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Capture cancelled or failed: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+        Err(e) => {
+            error!("Task error: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": "Internal error during capture"
             }).to_string(), &buffer, &connected).await;
         }
     }

@@ -206,22 +206,14 @@ impl GroqClient {
         if images.is_empty() {
             return Err("No images provided".to_string());
         }
-        let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
         
-        let mut system_prompt = String::from("You are Scout, a technical interview vision assistant. Extract information from this screenshot in JSON format.\n\nFirst, identify the TYPE:\n- DSA_PROBLEM: Coding problem (LeetCode/HackerRank style) with input/output examples\n- SYSTEM_DESIGN: Architecture/design question\n- LOGICAL_PUZZLE: Text-based reasoning problem\n- DEBUG_ERROR: Code with error messages\n- GENERAL: Other technical content\n\nFor DSA_PROBLEM, extract:\n{\n  \"type\": \"DSA_PROBLEM\",\n  \"title\": \"problem name\",\n  \"description\": \"full problem statement\",\n  \"input_format\": \"how input is given\",\n  \"output_format\": \"expected output format\",\n  \"constraints\": [\"list of constraints\"],\n  \"examples\": [{\"input\": \"...\", \"output\": \"...\", \"explanation\": \"...\"}],\n  \"confidence\": 0.95\n}\n\nFor SYSTEM_DESIGN:\n{\n  \"type\": \"SYSTEM_DESIGN\",\n  \"question\": \"design question\",\n  \"requirements\": [\"list of requirements\"],\n  \"confidence\": 0.90\n}\n\nFor DEBUG_ERROR:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"code\": \"extracted code only\",\n  \"error_message\": \"error text\",\n  \"confidence\": 0.85\n}\n\nFor GENERAL:\n{\n  \"type\": \"GENERAL\",\n  \"content\": \"description of screenshot\",\n  \"confidence\": 0.80\n}\n\nIMPORTANT:\n- Extract ALL visible text accurately\n- Include confidence score (0.0-1.0)\n- If confidence < 0.7, set \"needs_recapture\": true\n- Ignore UI elements, focus on problem content\n- Return ONLY valid JSON, no extra text");
+        let mut system_prompt = String::from("You are an expert image analyzer for cognitive aptitude tests (CCAT). Your job is to extract ALL relevant details from the image and format them for another AI to solve.\n\nAnalyze the image and extract:\n\n1. **QUESTION TYPE**: Identify if this is:\n   - Spatial/Pattern (shapes, rotation, sequences)\n   - Verbal/English (grammar, vocabulary, analogies)\n   - Mathematical (numbers, equations, word problems)\n   - Logical (syllogisms, deductions)\n\n2. **VISUAL ELEMENTS** (for pattern/spatial questions):\n   - List all shapes/objects and their positions\n   - Describe colors, sizes, orientations\n   - Note any sequences, rotations, or transformations\n   - Count elements (e.g., \"3 black sectors rotating clockwise\")\n   - Describe the pattern rule explicitly\n\n3. **TEXT CONTENT** (for verbal/math questions):\n   - Transcribe the question exactly\n   - List all answer choices with labels (A/B/C/D/E)\n   - Note any key terms or constraints\n\n4. **ANSWER OPTIONS**: Describe what each option shows (if visual)\n\n5. **PATTERN ANALYSIS** (if applicable):\n   - State the rule governing the sequence\n   - Describe what changes between each step\n   - Predict what the next element should be\n\nOUTPUT FORMAT - Strict JSON:\n{\n  \"question_type\": \"spatial|verbal|math|logic\",\n  \"description\": \"Detailed description of what is shown\",\n  \"elements\": [\"list\", \"of\", \"key\", \"elements\"],\n  \"sequence_pattern\": \"description of pattern rule\",\n  \"answer_options\": [\n    {\"label\": \"A\", \"description\": \"what option A shows\"},\n    {\"label\": \"B\", \"description\": \"what option B shows\"}\n  ],\n  \"key_observations\": [\"critical details for solving\"],\n  \"confidence\": 0.95\n}\n\nCRITICAL RULES:\n- Be extremely detailed and precise\n- The downstream model cannot see the image\n- DO NOT solve or provide the answer\n- ONLY extract and describe what you see\n- Include confidence score (0.0-1.0)\n- If confidence < 0.7, set \"needs_recapture\": true\n- Return ONLY valid JSON, no extra text");
         
         if images.len() > 1 {
             system_prompt.push_str("\n\nMULTI-IMAGE INSTRUCTIONS:\n- The following screenshots are consecutive parts of the same question.\n- Combine ALL visible text across images into a single coherent extraction.\n- If text overlaps between images, de-duplicate it.\n- Do not omit any sections, constraints, or examples.");
         }
         
-        let mut context = String::new();
-        if !recent_history.is_empty() {
-            context.push_str("\n\nRecent conversation (last 20 messages):\n");
-            for msg in recent_history {
-                context.push_str(&format!("{}: {}\n", msg.role, msg.content));
-            }
-        }
-        let full_prompt = format!("{}{}", system_prompt, context);
+        let full_prompt = system_prompt;
         
         let mut content_items = vec![json!({
             "type": "text",
@@ -245,8 +237,9 @@ impl GroqClient {
                     "content": content_items
                 }
             ],
-            "temperature": 0.3,
-            "max_tokens": 3000
+            "temperature": 0.51,
+            "max_completion_tokens": 4391,
+            "top_p": 1
         });
         
         let response = self.client
@@ -273,7 +266,7 @@ impl GroqClient {
                 return Ok((format!("{{\"needs_recapture\": true, \"reason\": \"Low confidence ({:.0}%). Please recapture with better quality.\"}}", confidence * 100.0), false));
             }
             
-            let is_coding = problem_type == "DSA_PROBLEM";
+            let is_coding = parsed["question_type"].is_string();
             Ok((content, is_coding))
         } else {
             let is_coding = content.contains("CODING_PROBLEM:");
@@ -292,6 +285,61 @@ impl GroqClient {
     
     pub async fn answer_mcq_direct(&self, image_base64: &str) -> Result<String, String> {
         let prompt = "You are an expert at solving multiple choice questions. Analyze the image carefully and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
+        
+        let payload = json!({
+            "model": "accounts/fireworks/models/qwen3-vl-30b-a3b-thinking",
+            "max_tokens": 32768,
+            "top_p": 1,
+            "top_k": 40,
+            "presence_penalty": 0,
+            "frequency_penalty": 0,
+            "temperature": 0.6,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": format!("data:image/png;base64,{}", image_base64)
+                            }
+                        }
+                    ]
+                }
+            ]
+        });
+        
+        let response = self.client
+            .post("https://api.fireworks.ai/inference/v1/chat/completions")
+            .header("Authorization", "Bearer fw_6qFsdieRPxRpJ4Jh4j1YcN")
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(format!("Fireworks API error {}: {}", status, error_text));
+        }
+        
+        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        Ok(content)
+    }
+    
+    pub async fn answer_interview_direct(&self, image_base64: &str) -> Result<String, String> {
+        let prompt = "You are an expert at solving cognitive aptitude test questions (CCAT). Analyze the image and solve the question.\n\nFor SPATIAL/PATTERN questions:\n- Identify the transformation rule (rotation, reflection, addition/subtraction of elements)\n- Track what changes between each step\n- Apply the rule to predict the next element\n- Match your prediction to the given options\n\nFor VERBAL questions:\n- Identify relationships (synonyms, antonyms, analogies)\n- Apply grammar rules or vocabulary knowledge\n- Eliminate incorrect options systematically\n\nFor MATH questions:\n- Set up equations or logical steps\n- Show your calculation process\n- Verify the answer makes sense\n\nFor LOGIC questions:\n- Map out the logical structure\n- Apply deduction rules\n- Test each option against the premises\n\nProvide your answer in this format:\n\nANALYSIS:\n[Brief explanation of question type and strategy]\n\nSOLUTION:\n[Step-by-step reasoning]\n\nANSWER: [Option Letter]\n\nEXPLANATION:\n[2-3 sentence summary of why this is correct]";
         
         let payload = json!({
             "model": "meta-llama/llama-4-maverick-17b-128e-instruct",
@@ -342,33 +390,33 @@ impl GroqClient {
     }
     
     pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
-        let recent_history: Vec<_> = history.iter().rev().take(20).rev().collect();
+        let system_prompt = "You are an expert at solving cognitive aptitude test questions (CCAT). You will receive detailed descriptions of questions extracted from images.\n\nYour task:\n1. Analyze the question type (spatial/pattern, verbal, math, logic)\n2. Apply the appropriate reasoning strategy\n3. Provide a clear, step-by-step solution\n\nFor SPATIAL/PATTERN questions:\n- Identify the transformation rule (rotation, reflection, addition/subtraction of elements)\n- Track what changes between each step\n- Apply the rule to predict the next element\n- Match your prediction to the given options\n\nFor VERBAL questions:\n- Identify relationships (synonyms, antonyms, analogies)\n- Apply grammar rules or vocabulary knowledge\n- Eliminate incorrect options systematically\n\nFor MATH questions:\n- Set up equations or logical steps\n- Show your calculation process\n- Verify the answer makes sense\n\nFor LOGIC questions:\n- Map out the logical structure\n- Apply deduction rules\n- Test each option against the premises\n\nOUTPUT FORMAT:\n\nANALYSIS:\n[Explain what type of question this is and what strategy to use]\n\nSOLUTION STEPS:\n1. [First step of reasoning]\n2. [Second step]\n3. [Continue until answer is clear]\n\nANSWER: [Option Letter]\n\nEXPLANATION:\n[Brief 2-3 sentence summary of why this is correct]\n\nIMPORTANT:\n- Be systematic and logical\n- Show your reasoning clearly\n- Double-check your answer against the options\n- If multiple options seem correct, explain why you chose one over the others";
         
-        let system_prompt = "You are a technical interview coding expert. Explain solutions in simple, conversational Indian English - like explaining to a classmate.\n\nProvide the solution in this EXACT format:\n\nBRUTE FORCE APPROACH\nIntuition: [Explain the basic idea in 2-3 simple sentences. What's the straightforward way to solve this?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete brute force implementation\n};\n```\n\nOPTIMAL APPROACH\nIntuition: [Explain the better idea in 2-3 simple sentences. What's the key insight that makes it faster?]\nTime: O(...)\nSpace: O(...)\n```cpp\nclass Solution {\npublic:\n    // Complete optimal implementation\n};\n```\n\nSUMMARY\n[In 2-3 sentences: Compare both approaches. Why is brute force slow? Why is optimal better?]\n\nIMPORTANT:\n- Keep intuition simple and conversational - speak naturally\n- Write complete, working C++ code\n- Use clear variable names\n- Add brief comments in code if helpful\n- Make it easy to understand and speak out loud";
-        
-        let mut messages = vec![json!({
-            "role": "system",
-            "content": system_prompt
-        })];
-        
-        for msg in recent_history {
-            messages.push(json!({
-                "role": msg.role,
-                "content": msg.content
-            }));
-        }
-        
-        messages.push(json!({
-            "role": "user",
-            "content": problem
-        }));
+        let messages = vec![
+            json!({
+                "role": "system",
+                "content": system_prompt
+            }),
+            json!({
+                "role": "user",
+                "content": problem
+            })
+        ];
         
         let payload = json!({
-            "model": "openai/gpt-oss-120b",
-            "messages": messages,
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": problem
+                }
+            ],
             "temperature": 0.4,
-            "max_tokens": 2000,
-            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
+            "max_tokens": 2000
         });
         
         let mut retries = 0;

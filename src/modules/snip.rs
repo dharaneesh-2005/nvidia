@@ -39,11 +39,33 @@ $startY = 0
 $endX = 0
 $endY = 0
 $isDrawing = $false
+$rect = New-Object System.Drawing.Rectangle
 
 $form.Add_MouseDown({{
     $script:startX = $_.X
     $script:startY = $_.Y
     $script:isDrawing = $true
+}})
+
+$form.Add_MouseMove({{
+    if ($script:isDrawing) {{
+        $script:endX = $_.X
+        $script:endY = $_.Y
+        $form.Invalidate()
+    }}
+}})
+
+$form.Add_Paint({{
+    param($sender, $e)
+    if ($script:isDrawing) {{
+        $x = [Math]::Min($script:startX, $script:endX)
+        $y = [Math]::Min($script:startY, $script:endY)
+        $w = [Math]::Abs($script:endX - $script:startX)
+        $h = [Math]::Abs($script:endY - $script:startY)
+        $pen = New-Object System.Drawing.Pen([System.Drawing.Color]::Red, 2)
+        $e.Graphics.DrawRectangle($pen, $x, $y, $w, $h)
+        $pen.Dispose()
+    }}
 }})
 
 $form.Add_MouseUp({{
