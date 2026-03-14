@@ -2,8 +2,8 @@ tunnel: interview-helper
 credentials-file: credentials.json
 
 ingress:
-  - hostname: "*.pinmypic.online"
+  - hostname: "*.dhans.online"
     service: http://localhost:5000
-  - hostname: pinmypic.online
+  - hostname: dhans.online
     service: http://localhost:5000
   - service: http_status:404

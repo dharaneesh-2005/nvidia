@@ -34,7 +34,7 @@ if not defined TUNNEL_NAME (
 )
 
 echo.
-set /p SUBDOMAIN="Enter subdomain (e.g., john for john.pinmypic.online): "
+set /p SUBDOMAIN="Enter subdomain (e.g., john for john.dhans.online): "
 
 if "%SUBDOMAIN%"=="" (
     echo Subdomain cannot be empty!
@@ -42,7 +42,7 @@ if "%SUBDOMAIN%"=="" (
     exit /b 1
 )
 
-set FULL_DOMAIN=%SUBDOMAIN%.pinmypic.online
+set FULL_DOMAIN=%SUBDOMAIN%.dhans.online
 
 echo.
 echo Adding DNS route:

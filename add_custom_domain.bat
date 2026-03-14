@@ -6,11 +6,39 @@ echo ========================================
 echo   Add Custom Domain to Cloudflare
 echo ========================================
 echo.
+echo Current directory: %CD%
+echo.
+
+REM Check if we're in the right directory
+if not exist "cloudflared.exe" (
+    echo Error: cloudflared.exe not found!
+    echo.
+    echo You must run this script from the Nvidia installation folder.
+    echo Default location: C:\Program Files\Nvidia\
+    echo.
+    pause
+    exit /b 1
+)
+
+REM Check if config.yml exists (means installation completed)
+if not exist "config.yml" (
+    echo Error: config.yml not found!
+    echo.
+    echo Installation appears incomplete. Please reinstall the application.
+    pause
+    exit /b 1
+)
 
 REM Check if tunnel.txt exists
 if not exist "tunnel.txt" (
     echo Error: tunnel.txt not found!
-    echo This file should be created during installation.
+    echo.
+    echo This file should have been created during installation.
+    echo Checking what files exist...
+    echo.
+    dir /b *.txt
+    echo.
+    echo Please reinstall the application or contact support.
     pause
     exit /b 1
 )
@@ -21,7 +49,9 @@ set /p TUNNEL_NAME=<tunnel.txt
 REM Check if domain.txt exists
 if not exist "domain.txt" (
     echo Error: domain.txt not found!
-    echo This file should be created during installation.
+    echo.
+    echo This file should have been created during installation.
+    echo Please reinstall the application or contact support.
     pause
     exit /b 1
 )
