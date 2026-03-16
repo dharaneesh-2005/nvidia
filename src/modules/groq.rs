@@ -284,23 +284,29 @@ impl GroqClient {
     }
     
     pub async fn answer_mcq_direct(&self, image_base64: &str) -> Result<String, String> {
-        let prompt = "You are an expert at solving multiple choice questions. Analyze the image carefully and provide ONLY the correct option letter and a brief 1-line answer. Format: 'Option X: [brief answer]'. Do not provide explanations or reasoning.";
+        self.answer_mcq_internal(image_base64, false).await
+    }
+    
+    pub async fn answer_mcq_picture(&self, image_base64: &str) -> Result<String, String> {
+        self.answer_mcq_internal(image_base64, true).await
+    }
+    
+    async fn answer_mcq_internal(&self, image_base64: &str, is_picture_mode: bool) -> Result<String, String> {
+        let extract_prompt = if is_picture_mode {
+            "You are an expert visual analyst for MCQ questions containing images, diagrams, charts, or patterns.\n\nCRITICAL: The downstream AI CANNOT see the image. Your description must be so detailed that someone could solve the question from your words alone.\n\nANALYSIS FRAMEWORK:\n\n1. **QUESTION TEXT**:\n   - Extract exact question wording\n   - Note what is being asked\n\n2. **VISUAL CONTENT** (Be EXHAUSTIVE):\n   \n   For DIAGRAMS:\n   - Name and describe each component\n   - Describe connections/relationships\n   - Note labels, arrows, annotations\n   - Describe spatial arrangement\n   \n   For CHARTS/GRAPHS:\n   - Describe axes (labels, scale, units)\n   - List all data points/bars/lines\n   - Note trends, peaks, valleys\n   - Describe legend/key\n   \n   For PATTERNS:\n   - Describe each element in sequence\n   - Note what changes (rotation, size, color, position)\n   - Identify the transformation rule\n   - Predict next element\n   \n   For IMAGES:\n   - Describe all objects and their positions\n   - Note colors, sizes, orientations\n   - Describe spatial relationships\n   - Note any text or symbols\n\n3. **OPTIONS** (Describe EACH in detail):\n   - If text: Write exact text\n   - If visual: Describe as if explaining to someone blind\n   - Note differences between options\n   - Explain what makes each unique\n\n4. **CONTEXT**:\n   - Any additional info, constraints, hints\n\nOUTPUT FORMAT (strict JSON):\n{\n  \"question\": \"exact question text\",\n  \"visual_type\": \"diagram|chart|pattern|image|mixed\",\n  \"visual_description\": \"EXTREMELY detailed description - minimum 200 words\",\n  \"options\": [\n    {\n      \"label\": \"A\", \n      \"description\": \"detailed description\",\n      \"key_features\": [\"feature 1\", \"feature 2\"]\n    }\n  ],\n  \"pattern_rule\": \"if applicable, describe the transformation rule\",\n  \"context\": \"any additional context\"\n}\n\nQUALITY CHECKLIST:\n- Could someone solve this without seeing the image?\n- Did I describe EVERY visual element?\n- Did I note colors, sizes, positions?\n- Did I describe differences between options?\n- Is my description at least 200 words?\n\nIf NO to any, add more detail!"
+        } else {
+            "You are an expert OCR and text extraction specialist for MCQ questions.\n\nTASK: Extract the complete MCQ question with perfect accuracy.\n\nEXTRACTION RULES:\n1. **Question Text**: \n   - Extract word-for-word, preserving all punctuation\n   - Include any code snippets, formulas, or special characters\n   - Note if question has multiple parts\n\n2. **Options**:\n   - Extract ALL options (A, B, C, D, E, etc.)\n   - Preserve exact wording and formatting\n   - Note if options contain code, math, or special symbols\n\n3. **Context**:\n   - Extract any instructions, constraints, or hints\n   - Note time limits, scoring rules, or special conditions\n\n4. **Quality Check**:\n   - If text is blurry or unclear, note it in \"quality_issues\"\n   - If any part is cut off, note it in \"incomplete_sections\"\n\nOUTPUT FORMAT (strict JSON):\n{\n  \"question\": \"exact question text\",\n  \"options\": [\n    {\"label\": \"A\", \"text\": \"exact option A text\"},\n    {\"label\": \"B\", \"text\": \"exact option B text\"},\n    {\"label\": \"C\", \"text\": \"exact option C text\"},\n    {\"label\": \"D\", \"text\": \"exact option D text\"}\n  ],\n  \"context\": \"any additional context\",\n  \"quality_issues\": \"none or describe issues\",\n  \"incomplete_sections\": \"none or describe what's missing\"\n}\n\nCRITICAL: Accuracy is paramount. Extract exactly what you see."
+        };
         
-        let payload = json!({
-            "model": "accounts/fireworks/models/qwen3-vl-30b-a3b-thinking",
-            "max_tokens": 32768,
-            "top_p": 1,
-            "top_k": 40,
-            "presence_penalty": 0,
-            "frequency_penalty": 0,
-            "temperature": 0.6,
+        let extract_payload = json!({
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
             "messages": [
                 {
                     "role": "user",
                     "content": [
                         {
                             "type": "text",
-                            "text": prompt
+                            "text": extract_prompt
                         },
                         {
                             "type": "image_url",
@@ -310,32 +316,72 @@ impl GroqClient {
                         }
                     ]
                 }
-            ]
+            ],
+            "temperature": 0.2,
+            "max_tokens": if is_picture_mode { 6000 } else { 3000 }
         });
         
-        let response = self.client
-            .post("https://api.fireworks.ai/inference/v1/chat/completions")
-            .header("Authorization", "Bearer fw_6qFsdieRPxRpJ4Jh4j1YcN")
-            .header("Accept", "application/json")
+        let extract_response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
             .header("Content-Type", "application/json")
-            .json(&payload)
+            .json(&extract_payload)
             .send()
             .await
             .map_err(|e| e.to_string())?;
         
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(format!("Fireworks API error {}: {}", status, error_text));
+        if !extract_response.status().is_success() {
+            let status = extract_response.status();
+            let error_text = extract_response.text().await.unwrap_or_default();
+            return Err(format!("Scout extraction error {}: {}", status, error_text));
         }
         
-        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let content = json["choices"][0]["message"]["content"]
+        let extract_json: serde_json::Value = extract_response.json().await.map_err(|e| e.to_string())?;
+        let extracted_content = extract_json["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")
             .to_string();
         
-        Ok(content)
+        let solve_prompt = format!("Solve this MCQ question:\n\n{}\n\nProvide your answer using the structured format below.", extracted_content);
+        
+        let solve_payload = json!({
+            "model": "openai/gpt-oss-120b",
+            "messages": [
+                {
+                    "role": "system",
+                    "content": "You are an expert MCQ solver with deep knowledge across multiple domains.\n\nSOLVING STRATEGY:\n\n1. **Understand the Question**:\n   - Identify the topic/domain\n   - Note what is being asked\n   - Identify key terms and constraints\n\n2. **Analyze Each Option**:\n   - Evaluate each option independently\n   - Eliminate obviously wrong answers\n   - Compare remaining options\n\n3. **Apply Domain Knowledge**:\n   - Use relevant facts, formulas, or principles\n   - Consider edge cases and exceptions\n   - Verify logic and reasoning\n\n4. **Select Best Answer**:\n   - Choose the most accurate/complete option\n   - If multiple seem correct, choose the BEST one\n   - If uncertain, explain why\n\nOUTPUT FORMAT:\n\n**ANSWER: [Option Letter]**\n\n**REASONING:**\n[2-3 sentences explaining why this is correct]\n\n**WHY OTHER OPTIONS ARE WRONG:**\n- Option X: [brief reason]\n- Option Y: [brief reason]\n\nCRITICAL RULES:\n- Be decisive - always provide ONE answer\n- Show clear reasoning\n- Be concise but thorough\n- If question is ambiguous, state assumptions"
+                },
+                {
+                    "role": "user",
+                    "content": solve_prompt
+                }
+            ],
+            "temperature": 0.4,
+            "max_tokens": 2000
+        });
+        
+        let solve_response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&solve_payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        if !solve_response.status().is_success() {
+            let status = solve_response.status();
+            let error_text = solve_response.text().await.unwrap_or_default();
+            return Err(format!("OSS-120B solving error {}: {}", status, error_text));
+        }
+        
+        let solve_json: serde_json::Value = solve_response.json().await.map_err(|e| e.to_string())?;
+        let answer = solve_json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        Ok(answer)
     }
     
     pub async fn answer_interview_direct(&self, image_base64: &str) -> Result<String, String> {

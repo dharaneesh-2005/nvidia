@@ -126,28 +126,6 @@
             background: rgba(80, 80, 80, 0.9);
         }
         
-        .btn-debug {
-            background: rgba(231, 76, 60, 0.3);
-            border-color: rgba(231, 76, 60, 0.5);
-        }
-        
-        .btn-mic {
-            background: rgba(52, 152, 219, 0.3);
-            border-color: rgba(52, 152, 219, 0.5);
-            position: relative;
-        }
-        
-        .btn-mic.recording {
-            background: rgba(231, 76, 60, 0.5);
-            border-color: rgba(231, 76, 60, 0.7);
-            animation: pulse 1.5s infinite;
-        }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.7; }
-        }
-
         .multi-capture-indicator {
             position: fixed;
             left: 50%;
@@ -588,13 +566,11 @@
                 <div class="status" id="status">●</div>
             </div>
             <div class="mode-tabs">
-                <button class="mode-tab active" data-mode="interview" onclick="switchMode('interview')">Interview</button>
-                <button class="mode-tab" data-mode="mcq" onclick="switchMode('mcq')">MCQ</button>
+                <button class="mode-tab active" data-mode="mcq" onclick="switchMode('mcq')">MCQ</button>
             </div>
             <div class="btn-group">
                 <button class="btn" onclick="captureScreen()">📸 Capture</button>
-                <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
-                <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
+                <button class="btn" onclick="capturePicture()" style="background: rgba(52, 152, 219, 0.3); border-color: rgba(52, 152, 219, 0.5);">🖼️ Picture</button>
                 <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
             </div>
         </header>
@@ -663,13 +639,8 @@
         const MAX_RECONNECT_DELAY = 30000; // 30 seconds max
         const BASE_DELAY = 1000; // 1 second base
         
-        // Microphone recording state
-        let mediaRecorder = null;
-        let audioChunks = [];
-        let isRecording = false;
-        
         let multiCaptureCount = 0;
-        let currentMode = 'interview'; // 'interview' or 'mcq'
+        let currentMode = 'mcq'; // Only MCQ mode
         
         // Restore chat history on load
         window.addEventListener('DOMContentLoaded', () => {
@@ -969,25 +940,19 @@
         }
         
         function captureScreen() {
-            if (currentMode === 'mcq') {
-                sendMessage('capture_mcq_snip');
-            } else {
-                sendMessage('capture_interview_snip');
-            }
+            sendMessage('capture_mcq_snip');
+        }
+        
+        function capturePicture() {
+            sendMessage('capture_mcq_picture_snip');
         }
         
         function switchMode(mode) {
-            currentMode = mode;
-            document.querySelectorAll('.mode-tab').forEach(tab => {
-                tab.classList.remove('active');
-            });
-            document.querySelector(`[data-mode="${mode}"]`).classList.add('active');
-            console.log(`Switched to ${mode} mode`);
+            currentMode = 'mcq';
+            console.log('MCQ mode active');
         }
         
-        function debugCode() {
-            sendMessage('debug_code');
-        }
+
         
         function clearHistory() {
             if (confirm('Clear all chat history?')) {
@@ -997,63 +962,7 @@
             }
         }
         
-        async function toggleMic() {
-            if (!isRecording) {
-                await startRecording();
-            } else {
-                await stopRecording();
-            }
-        }
-        
-        async function startRecording() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    audioChunks.push(event.data);
-                };
-                
-                mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                    await sendAudioToServer(audioBlob);
-                    stream.getTracks().forEach(track => track.stop());
-                };
-                
-                mediaRecorder.start();
-                isRecording = true;
-                document.getElementById('micBtn').classList.add('recording');
-                document.getElementById('micBtn').textContent = '⏹️ Stop';
-                console.log('Recording started...');
-            } catch (error) {
-                console.error('Microphone access denied:', error);
-                alert('Microphone access denied. Please allow microphone permissions.');
-            }
-        }
-        
-        async function stopRecording() {
-            if (mediaRecorder && isRecording) {
-                mediaRecorder.stop();
-                isRecording = false;
-                document.getElementById('micBtn').classList.remove('recording');
-                document.getElementById('micBtn').textContent = '🎤 Mic';
-                console.log('Recording stopped.');
-            }
-        }
-        
-        async function sendAudioToServer(audioBlob) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64Audio = reader.result.split(',')[1];
-                sendMessage(JSON.stringify({
-                    type: 'mic_audio',
-                    audio: base64Audio
-                }));
-                console.log('Audio sent to server');
-            };
-            reader.readAsDataURL(audioBlob);
-        }
+
         
         function solveProblem(btn, questionText) {
             const unescaped = questionText.replace(/\\'/g, "'");

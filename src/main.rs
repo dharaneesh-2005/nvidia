@@ -183,8 +183,12 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                         tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "capture_mcq" {
                         tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_mcq_picture" {
+                        tokio::spawn(handle_mcq_picture_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "capture_mcq_snip" {
                         tokio::spawn(handle_mcq_snip_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_mcq_picture_snip" {
+                        tokio::spawn(handle_mcq_picture_snip_capture(state.tx.clone(), state.groq.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "capture_interview_snip" {
                         tokio::spawn(handle_interview_snip_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
@@ -484,7 +488,7 @@ async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClie
 }
 
 async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
-    info!("Processing MCQ screenshot with Maverick model...");
+    info!("Processing MCQ screenshot with Scout model...");
     
     send_or_buffer(&tx, serde_json::json!({
         "type": "transcription",
@@ -512,6 +516,43 @@ async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>
         }
         Err(e) => {
             error!("MCQ capture failed: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Capture failed: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+    }
+}
+
+async fn handle_mcq_picture_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    info!("Processing MCQ Picture screenshot with Scout model (high detail)...");
+    
+    send_or_buffer(&tx, serde_json::json!({
+        "type": "transcription",
+        "text": "Analyzing MCQ Picture (detailed visual analysis)..."
+    }).to_string(), &buffer, &connected).await;
+    
+    match ScreenCapture::capture_now() {
+        Ok(image_data) => {
+            match groq.answer_mcq_picture(&image_data).await {
+                Ok(answer) => {
+                    info!("✓ MCQ Picture answer received: {}", &answer[..answer.len().min(100)]);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": answer
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("MCQ Picture analysis error: {}", e);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error analyzing MCQ Picture: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Err(e) => {
+            error!("MCQ Picture capture failed: {}", e);
             send_or_buffer(&tx, serde_json::json!({
                 "type": "answer",
                 "text": format!("Capture failed: {}", e)
@@ -574,7 +615,6 @@ async fn handle_mcq_snip_capture(tx: broadcast::Sender<String>, groq: Arc<GroqCl
         "text": "Select MCQ region (click and drag)..."
     }).to_string(), &buffer, &connected).await;
     
-    // Run blocking snip tool in separate thread
     let result = tokio::task::spawn_blocking(|| {
         SnipTool::capture_region()
     }).await;
@@ -594,6 +634,54 @@ async fn handle_mcq_snip_capture(tx: broadcast::Sender<String>, groq: Arc<GroqCl
                     send_or_buffer(&tx, serde_json::json!({
                         "type": "answer",
                         "text": format!("Error analyzing MCQ: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Ok(Err(e)) => {
+            error!("Region capture failed: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Capture cancelled or failed: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+        Err(e) => {
+            error!("Task error: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": "Internal error during capture"
+            }).to_string(), &buffer, &connected).await;
+        }
+    }
+}
+
+async fn handle_mcq_picture_snip_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    info!("Launching region selection for MCQ Picture (high detail)...");
+    
+    send_or_buffer(&tx, serde_json::json!({
+        "type": "transcription",
+        "text": "Select MCQ Picture region (click and drag)..."
+    }).to_string(), &buffer, &connected).await;
+    
+    let result = tokio::task::spawn_blocking(|| {
+        SnipTool::capture_region()
+    }).await;
+    
+    match result {
+        Ok(Ok(image_data)) => {
+            match groq.answer_mcq_picture(&image_data).await {
+                Ok(answer) => {
+                    info!("✓ MCQ Picture answer received: {}", &answer[..answer.len().min(100)]);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": answer
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("MCQ Picture analysis error: {}", e);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error analyzing MCQ Picture: {}", e)
                     }).to_string(), &buffer, &connected).await;
                 }
             }
