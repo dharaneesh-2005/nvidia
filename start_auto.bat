@@ -25,7 +25,7 @@ echo   Interview Helper is Running!
 echo ========================================
 echo.
 echo Access from anywhere:
-echo   https://pinmypic.online
+echo   https://dhans.online
 echo.
 echo ========================================
 echo.

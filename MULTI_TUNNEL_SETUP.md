@@ -47,7 +47,7 @@ Choose your tunnel:
 ### Page 2: Domain Selection
 ```
 Choose your subdomain:
-○ Helper subdomain (helper.pinmypic.online)
+○ Helper subdomain (helper.dhans.online)
 ○ Custom subdomain
 ```
 
@@ -59,11 +59,11 @@ Enter subdomain name: [_______]
 ## How It Works
 
 1. User selects tunnel (e.g., "Dharaneesh")
-2. User selects subdomain (e.g., "john.pinmypic.online")
+2. User selects subdomain (e.g., "john.dhans.online")
 3. Installer copies the selected tunnel credentials to `credentials.json`
 4. Installer creates `config.yml` with:
    - Tunnel: nvidia-dharaneesh
-   - Hostname: john.pinmypic.online
+   - Hostname: john.dhans.online
 5. User launches app
 6. App connects using their specific tunnel
 
@@ -78,27 +78,27 @@ Enter subdomain name: [_______]
 
 **User 1 (Dharaneesh):**
 - Tunnel: nvidia-dharaneesh
-- Domain: dharaneesh.pinmypic.online
+- Domain: dharaneesh.dhans.online
 - ✅ Works
 
 **User 2 (Steepan):**
 - Tunnel: nvidia-steepan
-- Domain: steepan.pinmypic.online
+- Domain: steepan.dhans.online
 - ✅ Works simultaneously with User 1
 
 **User 3 (Dinesh):**
 - Tunnel: nvidia-dinesh
-- Domain: dinesh.pinmypic.online
+- Domain: dinesh.dhans.online
 - ✅ Works simultaneously with Users 1 & 2
 
 **User 4 (Backup1):**
 - Tunnel: nvidia-backup1
-- Domain: backup1.pinmypic.online
+- Domain: backup1.dhans.online
 - ✅ Works simultaneously with all others
 
 **User 5 (Backup2):**
 - Tunnel: nvidia-backup2
-- Domain: backup2.pinmypic.online
+- Domain: backup2.dhans.online
 - ✅ Works simultaneously with all others
 
 ## Files Created

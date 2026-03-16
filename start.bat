@@ -27,7 +27,7 @@ echo ========================================
 echo.
 echo Access from your phone:
 echo.
-echo   https://helper.pinmypic.online
+echo   https://helper.dhans.online
 echo.
 echo (This URL never changes!)
 echo ========================================

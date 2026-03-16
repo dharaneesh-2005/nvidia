@@ -3,17 +3,17 @@ cd /d "%~dp0"
 
 echo ========================================
 echo   Configuring Custom Domain
-echo   helper.pinmypic.online
+echo   helper.dhans.online
 echo ========================================
 echo.
 
 echo [1/2] Adding DNS route...
-cloudflared tunnel route dns interview-helper helper.pinmypic.online
+cloudflared tunnel route dns interview-helper helper.dhans.online
 
 if errorlevel 1 (
     echo.
     echo Error: Failed to add DNS route
-    echo Make sure pinmypic.online is in your Cloudflare account
+    echo Make sure dhans.online is in your Cloudflare account
     pause
     exit /b 1
 )
@@ -26,7 +26,7 @@ echo tunnel: interview-helper
 echo credentials-file: credentials.json
 echo.
 echo ingress:
-echo   - hostname: helper.pinmypic.online
+echo   - hostname: helper.dhans.online
 echo     service: http://localhost:5000
 echo   - service: http_status:404
 ) > config.yml
@@ -37,7 +37,7 @@ echo   Setup Complete!
 echo ========================================
 echo.
 echo Your permanent URL:
-echo   https://helper.pinmypic.online
+echo   https://helper.dhans.online
 echo.
 echo This URL will work every time you run the app!
 echo.

@@ -59,11 +59,11 @@ begin
   
   // Create domain selection page
   DomainPage := CreateInputOptionPage(TunnelPage.ID,
-    'Domain Configuration', 'Choose your subdomain for pinmypic.online',
+    'Domain Configuration', 'Choose your subdomain for dhans.online',
     'Select how you want to access your application:',
     True, False);
   
-  DomainPage.Add('Helper subdomain (helper.pinmypic.online)');
+  DomainPage.Add('Helper subdomain (helper.dhans.online)');
   DomainPage.Add('Custom subdomain');
   
   DomainPage.Values[0] := True; // Default to helper subdomain
@@ -71,7 +71,7 @@ begin
   // Create custom subdomain input page
   CustomSubdomainPage := CreateInputQueryPage(DomainPage.ID,
     'Custom Subdomain', 'Enter your custom subdomain',
-    'Enter the subdomain name (without .pinmypic.online):');
+    'Enter the subdomain name (without .dhans.online):');
   
   CustomSubdomainPage.Add('Subdomain name:', False);
   CustomSubdomainPage.Values[0] := 'myapp';
@@ -107,17 +107,17 @@ var
   CustomSub: String;
 begin
   if DomainPage.Values[0] then
-    Result := 'helper.pinmypic.online'
+    Result := 'helper.dhans.online'
   else if DomainPage.Values[1] then
   begin
     CustomSub := Trim(CustomSubdomainPage.Values[0]);
     if CustomSub = '' then
-      Result := 'helper.pinmypic.online'
+      Result := 'helper.dhans.online'
     else
-      Result := CustomSub + '.pinmypic.online';
+      Result := CustomSub + '.dhans.online';
   end
   else
-    Result := 'helper.pinmypic.online';
+    Result := 'helper.dhans.online';
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
@@ -161,10 +161,10 @@ begin
     SaveStringsToFile(DomainFile, ConfigContent, False);
     
     // Save tunnel name to tunnel.txt
-    DomainFile := ExpandConstant('{app}\tunnel.txt');
+    TunnelFile := ExpandConstant('{app}\tunnel.txt');
     SetArrayLength(ConfigContent, 1);
     ConfigContent[0] := SelectedTunnel;
-    SaveStringsToFile(DomainFile, ConfigContent, False);
+    SaveStringsToFile(TunnelFile, ConfigContent, False);
     
     // Try to add DNS route automatically
     if MsgBox('Do you want to add the DNS route now?' + #13#10 + #13#10 +
