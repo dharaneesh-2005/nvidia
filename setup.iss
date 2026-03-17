@@ -13,6 +13,7 @@ UninstallDisplayIcon={app}\nvidia.exe
 
 [Files]
 Source: "target\release\nvidia.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "target\release\nvidia-tauri.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "cloudflared.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "cert.pem"; DestDir: "{app}"; Flags: ignoreversion
 Source: "config.json"; DestDir: "{app}"; Flags: ignoreversion

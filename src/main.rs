@@ -115,6 +115,7 @@ async fn main() {
         .route("/api/code/files", get(get_files))
         .route("/api/code/content", post(get_file_content))
         .route("/api/code/query", post(query_code))
+        .route("/api/pip-toggle", post(pip_toggle_handler))
         .nest_service("/static", ServeDir::new("static"))
         .with_state(state);
     
@@ -127,6 +128,25 @@ async fn main() {
 
 async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+async fn pip_toggle_handler(State(state): State<AppState>) -> impl IntoResponse {
+    info!("[PiP] HTTP toggle request received - broadcasting toggle_pip_window message");
+    // Broadcast the toggle message to all WebSocket clients
+    // This will be handled by the Tauri app and the browser UI
+    let _ = state.tx.send(serde_json::json!({
+        "type": "toggle_pip_window"
+    }).to_string());
+    
+    // Also broadcast state change request to sync all clients
+    let _ = state.tx.send(serde_json::json!({
+        "type": "get_pip_state"
+    }).to_string());
+    
+    axum::response::Json(serde_json::json!({
+        "status": "ok",
+        "message": "PiP toggle broadcasted"
+    }))
 }
 
 async fn ws_handler(

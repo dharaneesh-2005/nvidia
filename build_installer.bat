@@ -28,7 +28,13 @@ set MISSING=0
 
 if not exist "target\release\nvidia.exe" (
     echo Missing: target\release\nvidia.exe
-    echo Run: cargo build --release
+    echo Run: cargo build --release --bin nvidia
+    set MISSING=1
+)
+
+if not exist "target\release\nvidia-tauri.exe" (
+    echo Missing: target\release\nvidia-tauri.exe
+    echo Run: build_complete.bat first to build both applications
     set MISSING=1
 )
 

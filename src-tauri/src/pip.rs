@@ -11,6 +11,12 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 static PIP_OPEN: AtomicBool = AtomicBool::new(false);
 
+/// Get the current PiP window state (Tauri command)
+#[tauri::command]
+pub fn get_pip_state() -> bool {
+    PIP_OPEN.load(Ordering::SeqCst)
+}
+
 /// Open the native PiP window with screen capture exclusion
 #[tauri::command]
 pub async fn open_pip_window(
@@ -52,7 +58,7 @@ pub async fn open_pip_window(
     println!("[PiP] Creating PiP window at ({}, {}) with size {}x{}", 
         window_x, window_y, window_width, window_height);
 
-    // Create the PiP window
+    // Create the PiP window with decorations for easy moving
     let pip_window = WebviewWindowBuilder::new(
         &app,
         "pip",
@@ -62,16 +68,14 @@ pub async fn open_pip_window(
     .inner_size(window_width, window_height)
     .position(window_x, window_y)
     .always_on_top(true)
-    .decorations(false)          // Borderless
+    .decorations(true)           // Enable title bar/borders for easy moving
     .resizable(true)
     .skip_taskbar(true)          // Hide from taskbar
     .visible(true)
     .build()
     .map_err(|e| format!("Failed to create PiP window: {}", e))?;
 
-    // Enable dragging the window by the title bar area
-    // This requires the HTML to have data-tauri-drag-region attribute
-    println!("[PiP] Window created with drag support enabled");
+    println!("[PiP] Window created with title bar for easy moving");
 
     // Apply screen capture exclusion
     #[cfg(target_os = "windows")]
@@ -186,6 +190,8 @@ fn apply_capture_exclusion_windows(window: &tauri::WebviewWindow) -> Result<(), 
     }
 }
 
+
+
 /// Apply macOS screen capture exclusion
 #[cfg(target_os = "macos")]
 fn apply_capture_exclusion_macos(window: &tauri::WebviewWindow) -> Result<(), String> {
@@ -272,4 +278,39 @@ pub async fn update_pip_size(
     } else {
         Err("PiP window not found".to_string())
     }
+}
+
+/// Hide cursor for PiP window (Windows only)
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn hide_pip_cursor(app: AppHandle) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetClassLongPtrW, GCLP_HCURSOR, GetClassLongPtrW,
+    };
+    use windows::Win32::Foundation::HWND;
+
+    if let Some(window) = app.get_webview_window("pip") {
+        let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
+        let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+
+        unsafe {
+            let hwnd_win = HWND(hwnd_ptr);
+            // Set cursor to NULL (invisible)
+            SetClassLongPtrW(hwnd_win, GCLP_HCURSOR, 0);
+            println!("[PiP] Cursor hidden");
+        }
+        Ok(())
+    } else {
+        Err("PiP window not found".to_string())
+    }
+}
+
+/// Show cursor for PiP window (Windows only)
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub fn show_pip_cursor(_app: AppHandle) -> Result<(), String> {
+    // Cursor restoration is handled by the OS when the window is destroyed
+    // CSS cursor styling is handled by the frontend
+    println!("[PiP] Cursor show requested (handled by CSS)");
+    Ok(())
 }

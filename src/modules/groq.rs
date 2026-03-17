@@ -316,20 +316,21 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 4000,
-            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
+            "max_tokens": 4000
         });
         
         let mut retries = 0;
         loop {
-            match self.client
-                .post("https://api.groq.com/openai/v1/chat/completions")
-                .header("Authorization", format!("Bearer {}", self.api_key))
-                .header("Content-Type", "application/json")
-                .json(&payload)
-                .send()
-                .await {
-                Ok(response) => {
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(8),
+                self.client
+                    .post("https://api.groq.com/openai/v1/chat/completions")
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&payload)
+                    .send()
+            ).await {
+                Ok(Ok(response)) => {
                     if response.status().is_success() {
                         let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
                         let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
@@ -342,12 +343,20 @@ impl GroqClient {
                         return Err(format!("API error: {}", response.status()));
                     }
                 }
-                Err(e) if retries < 3 => {
+                Ok(Err(e)) if retries < 3 => {
+                    eprintln!("API request failed (attempt {}): {}", retries + 1, e);
                     retries += 1;
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
-                Err(e) => return Err(e.to_string()),
+                Ok(Err(e)) => return Err(format!("API request failed: {}", e)),
+                Err(_) if retries < 3 => {
+                    eprintln!("Request timed out after 8 seconds (attempt {})", retries + 1);
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                    continue;
+                }
+                Err(_) => return Err("Request timed out after 8 seconds".to_string()),
             }
         }
     }
@@ -429,8 +438,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 4000,
-            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
+            "max_tokens": 4000
         });
         
         let mut retries = 0;
@@ -500,8 +508,7 @@ impl GroqClient {
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 4000,
-            "tools": [{"type": "code_interpreter"}, {"type": "browser_search"}]
+            "max_tokens": 4000
         });
         
         let response = self.client

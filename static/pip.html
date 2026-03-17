@@ -564,6 +564,34 @@
         window.isPiPWindow = true;
         console.log('[PiP] Native PiP window initialized');
         console.log('[PiP] This window is hidden from screen capture (OBS/Zoom/GMeet)');
+
+        // Hide cursor using CSS injection for screen capture invisibility
+        (function hideCursor() {
+            const style = document.createElement('style');
+            style.id = 'hide-cursor-style';
+            style.textContent = `
+                * {
+                    cursor: none !important;
+                }
+                html, body {
+                    cursor: none !important;
+                }
+            `;
+            document.head.appendChild(style);
+            console.log('[PiP] Cursor hidden via CSS');
+        })();
+
+        // Also try to hide cursor via Tauri API if available
+        if (window.__TAURI__) {
+            setTimeout(async () => {
+                try {
+                    await window.__TAURI__.invoke('hide_pip_cursor');
+                    console.log('[PiP] Cursor hidden via Tauri API');
+                } catch (e) {
+                    console.log('[PiP] Tauri cursor hide not available, using CSS only');
+                }
+            }, 500);
+        }
     </script>
 </body>
 </html>

@@ -15,6 +15,9 @@ pub fn run() {
             pip::toggle_pip_window,
             pip::is_pip_open,
             pip::minimize_pip_window,
+            pip::get_pip_state,
+            pip::hide_pip_cursor,
+            pip::show_pip_cursor,
         ])
         .setup(|app| {
             // Hide the main window on startup - we'll use the web server
@@ -23,20 +26,24 @@ pub fn run() {
             }
             
             // Register global shortcut Ctrl+Alt+P to toggle PiP
-            let app_handle = app.handle().clone();
             let shortcut_manager = app.global_shortcut();
             let shortcut = Shortcut::new(
                 Some(tauri_plugin_global_shortcut::Modifiers::CONTROL | tauri_plugin_global_shortcut::Modifiers::ALT),
                 tauri_plugin_global_shortcut::Code::KeyP,
             );
             
-            // Register with handler - only trigger on key press (not release)
+            // Register with handler - send WebSocket message like the UI button does
             if let Err(e) = shortcut_manager.on_shortcut(shortcut, move |_app, _shortcut, event| {
                 if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    println!("[Global Shortcut] Ctrl+Alt+P pressed - toggling PiP window");
-                    let app_handle = app_handle.clone();
+                    println!("[Global Shortcut] Ctrl+Alt+P pressed - sending toggle_pip_window message");
+                    // Send WebSocket message to backend (same as UI button)
                     tauri::async_runtime::spawn(async move {
-                        let _ = pip::toggle_pip_window(app_handle).await;
+                        // Use reqwest or a simple HTTP request to trigger the WebSocket broadcast
+                        let client = reqwest::Client::new();
+                        let _ = client.post("http://localhost:5000/api/pip-toggle")
+                            .timeout(std::time::Duration::from_secs(2))
+                            .send()
+                            .await;
                     });
                 }
             }) {
