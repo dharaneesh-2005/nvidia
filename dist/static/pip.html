@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Nvidia PiP</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        html, body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: rgba(30, 30, 30, 0.98);
+            color: #e0e0e0;
+            height: 100vh;
+            overflow: hidden;
+            user-select: none;
+        }
+
+        .pip-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        /* Drag handle area */
+        .drag-handle {
+            height: 28px;
+            background: linear-gradient(180deg, rgba(50, 50, 50, 0.95) 0%, rgba(40, 40, 40, 0.95) 100%);
+            border-bottom: 1px solid rgba(80, 80, 80, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            cursor: move;
+            -webkit-app-region: drag;
+        }
+
+        .drag-handle .title {
+            font-size: 11px;
+            font-weight: 600;
+            color: #10a37f;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .drag-handle .subtitle {
+            font-size: 9px;
+            color: #666;
+        }
+
+        /* Status bar */
+        .status-bar {
+            height: 24px;
+            background: rgba(35, 35, 35, 0.95);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 12px;
+            font-size: 10px;
+            border-bottom: 1px solid rgba(80, 80, 80, 0.2);
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: #e74c3c;
+            transition: background 0.3s;
+        }
+
+        .status-dot.connected {
+            background: #10a37f;
+            box-shadow: 0 0 6px rgba(16, 163, 127, 0.6);
+        }
+
+        .status-text {
+            color: #888;
+            font-weight: 500;
+        }
+
+        .capture-status {
+            color: #10a37f;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+        }
+
+        /* Chat area */
+        .chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            background: rgba(25, 25, 25, 0.95);
+        }
+
+        .chat-container::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(100, 100, 100, 0.5);
+            border-radius: 2px;
+        }
+
+        .message {
+            margin-bottom: 8px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .msg-q {
+            background: rgba(50, 50, 50, 0.9);
+            border: 1px solid rgba(80, 80, 80, 0.3);
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 4px;
+        }
+
+        .msg-a {
+            background: rgba(40, 40, 40, 0.95);
+            border: 1px solid rgba(80, 80, 80, 0.3);
+            border-radius: 8px;
+            padding: 8px;
+            border-left: 2px solid #10a37f;
+        }
+
+        .msg-label {
+            font-size: 9px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+            opacity: 0.7;
+            color: #888;
+        }
+
+        .msg-content {
+            font-size: 12px;
+            line-height: 1.5;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            color: #e0e0e0;
+        }
+
+        .msg-content pre {
+            background: rgba(0, 0, 0, 0.4);
+            border-radius: 4px;
+            padding: 6px;
+            overflow-x: auto;
+            font-size: 10px;
+            margin: 4px 0;
+        }
+
+        .msg-content code {
+            font-family: 'Fira Code', monospace;
+            font-size: 10px;
+        }
+
+        .loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            color: #888;
+            font-style: italic;
+        }
+
+        .loading::after {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-top-color: #10a37f;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty state */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: #666;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .empty-state .icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            opacity: 0.5;
+        }
+
+        .empty-state .text {
+            font-size: 12px;
+            line-height: 1.5;
+        }
+
+        /* Footer */
+        .footer {
+            height: 32px;
+            background: rgba(35, 35, 35, 0.95);
+            border-top: 1px solid rgba(80, 80, 80, 0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            padding: 0 12px;
+        }
+
+        .footer-btn {
+            background: rgba(60, 60, 60, 0.8);
+            border: 1px solid rgba(100, 100, 100, 0.4);
+            color: #e0e0e0;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 10px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .footer-btn:hover {
+            background: rgba(80, 80, 80, 0.9);
+        }
+
+        .footer-btn.clear {
+            background: rgba(231, 76, 60, 0.2);
+            border-color: rgba(231, 76, 60, 0.4);
+        }
+
+        .footer-btn.clear:hover {
+            background: rgba(231, 76, 60, 0.4);
+        }
+    </style>
+</head>
+<body>
+    <div class="pip-container">
+        <!-- Drag handle -->
+        <div class="drag-handle">
+            <span class="title">🔒 Nvidia PiP</span>
+            <span class="subtitle">Hidden from capture</span>
+        </div>
+
+        <!-- Status bar -->
+        <div class="status-bar">
+            <div class="status-indicator">
+                <div class="status-dot" id="statusDot"></div>
+                <span class="status-text" id="statusText">Connecting...</span>
+            </div>
+            <span class="capture-status">🔒 Hidden from capture</span>
+        </div>
+
+        <!-- Chat area -->
+        <div class="chat-container" id="chat">
+            <div class="empty-state">
+                <div class="icon">🤖</div>
+                <div class="text">
+                    PiP Window Active<br>
+                    <small>Invisible to screen capture</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="footer">
+            <button class="footer-btn clear" onclick="clearChat()">🗑️ Clear</button>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/markdown-it/13.0.2/markdown-it.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script>
+        // Initialize markdown-it
+        const md = window.markdownit({
+            html: true,
+            linkify: true,
+            typographer: true,
+            highlight: function (str, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    try {
+                        return hljs.highlight(str, { language: lang }).value;
+                    } catch (__) {}
+                }
+                return '';
+            }
+        });
+
+        // WebSocket connection
+        let ws;
+        let reconnectInterval;
+        let currentAnswer = null;
+
+        function connect() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
+
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                console.log('[PiP] Connected');
+                document.getElementById('statusDot').classList.add('connected');
+                document.getElementById('statusText').textContent = 'Connected';
+                clearInterval(reconnectInterval);
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                handleMessage(data);
+            };
+
+            ws.onclose = () => {
+                console.log('[PiP] Disconnected');
+                document.getElementById('statusDot').classList.remove('connected');
+                document.getElementById('statusText').textContent = 'Disconnected';
+
+                reconnectInterval = setInterval(() => {
+                    console.log('[PiP] Reconnecting...');
+                    connect();
+                }, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('[PiP] WebSocket error:', error);
+            };
+        }
+
+        function handleMessage(data) {
+            const chat = document.getElementById('chat');
+
+            switch(data.type) {
+                case 'transcription':
+                    // Remove empty state if present
+                    const emptyState = chat.querySelector('.empty-state');
+                    if (emptyState) emptyState.remove();
+
+                    const msg = document.createElement('div');
+                    msg.className = 'message';
+                    msg.innerHTML = `
+                        <div class="msg-q">
+                            <div class="msg-label">Question</div>
+                            <div class="msg-content">${escapeHtml(data.text)}</div>
+                        </div>
+                        <div class="msg-a">
+                            <div class="msg-label">Answer</div>
+                            <div class="msg-content"><span class="loading">Thinking...</span></div>
+                        </div>
+                    `;
+                    chat.appendChild(msg);
+                    currentAnswer = msg.querySelector('.msg-a .msg-content');
+                    scrollToBottom();
+                    break;
+
+                case 'answer':
+                    if (currentAnswer) {
+                        currentAnswer.innerHTML = formatAnswer(data.text);
+                        currentAnswer = null;
+                        scrollToBottom();
+                    }
+                    break;
+            }
+        }
+
+        function formatAnswer(text) {
+            if (!text || text.trim() === '') {
+                return '<p>No response</p>';
+            }
+
+            let html = md.render(text);
+
+            // Simplify code blocks for PiP
+            html = html.replace(/<pre><code class="hljs ([^"]+)">([\s\S]*?)<\/code><\/pre>/g,
+                '<pre><code>$2</code></pre>');
+
+            return html;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function scrollToBottom() {
+            const chat = document.getElementById('chat');
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        function clearChat() {
+            const chat = document.getElementById('chat');
+            chat.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">🤖</div>
+                    <div class="text">
+                        PiP Window Active<br>
+                        <small>Invisible to screen capture</small>
+                    </div>
+                </div>
+            `;
+            currentAnswer = null;
+        }
+
+        // Initialize
+        connect();
+
+        // Mark as PiP window
+        window.isPiPWindow = true;
+        console.log('[PiP] Native PiP window initialized');
+        console.log('[PiP] This window is hidden from screen capture (OBS/Zoom/GMeet)');
+    </script>
+</body>
+</html>

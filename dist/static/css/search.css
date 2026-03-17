@@ -1,0 +1,117 @@
+/* Search bar modal */
+.search-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+}
+
+.search-modal.active {
+    display: flex;
+}
+
+.search-box {
+    background: #2d2d30;
+    border-radius: 12px;
+    padding: 24px;
+    width: 90%;
+    max-width: 600px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.search-input {
+    width: 100%;
+    background: #1e1e1e;
+    border: 2px solid #444;
+    color: #ececf1;
+    padding: 16px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-family: inherit;
+    outline: none;
+}
+
+.search-input:focus {
+    border-color: #10a37f;
+}
+
+.search-hint {
+    margin-top: 12px;
+    font-size: 13px;
+    color: #8e8ea0;
+    text-align: center;
+}
+
+.codebase-section {
+    margin-top: 16px;
+}
+
+.codebase-toggle {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px;
+    background: #1e1e1e;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.codebase-toggle:hover {
+    background: #2a2a2a;
+}
+
+.codebase-toggle input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    cursor: pointer;
+}
+
+.codebase-toggle span {
+    color: #ececf1;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.manual-search-toggle {
+    position: fixed;
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    background: rgba(20, 20, 30, 0.78);
+    color: #fff;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+    z-index: 950;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+    transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+    touch-action: manipulation;
+}
+
+.manual-search-toggle:hover {
+    background: rgba(20, 20, 30, 0.9);
+    border-color: rgba(16, 163, 127, 0.6);
+}
+
+.manual-search-toggle:active {
+    transform: scale(0.95);
+}
+
+.manual-search-toggle:focus-visible {
+    outline: 2px solid rgba(16, 163, 127, 0.8);
+    outline-offset: 2px;
+}

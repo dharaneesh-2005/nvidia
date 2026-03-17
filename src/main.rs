@@ -190,7 +190,21 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     } else if text.starts_with("{") {
                         if let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) {
                             let msg_type = json.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                            if msg_type == "solve_problem" {
+                            if msg_type == "open_pip_window" {
+                                // Notify all clients that PiP was requested
+                                // The Tauri app will handle the actual window creation
+                                info!("[PiP] PiP window open requested from client");
+                                // Broadcast to all connected clients (including Tauri app)
+                                let _ = state.tx.send(serde_json::json!({
+                                    "type": "open_pip_window"
+                                }).to_string());
+                            } else if msg_type == "close_pip_window" {
+                                info!("[PiP] PiP window close requested from client");
+                                // Broadcast to all connected clients (including Tauri app)
+                                let _ = state.tx.send(serde_json::json!({
+                                    "type": "close_pip_window"
+                                }).to_string());
+                            } else if msg_type == "solve_problem" {
                                 let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 if !question.is_empty() {
                                     let tx_clone = state.tx.clone();
