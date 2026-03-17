@@ -33,7 +33,7 @@
 
         /* Drag handle area */
         .drag-handle {
-            height: 28px;
+            height: 32px;
             background: linear-gradient(180deg, rgba(50, 50, 50, 0.95) 0%, rgba(40, 40, 40, 0.95) 100%);
             border-bottom: 1px solid rgba(80, 80, 80, 0.3);
             display: flex;
@@ -42,6 +42,14 @@
             padding: 0 12px;
             cursor: move;
             -webkit-app-region: drag;
+            user-select: none;
+        }
+
+        .drag-handle .title-area {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
         }
 
         .drag-handle .title {
@@ -55,6 +63,41 @@
         .drag-handle .subtitle {
             font-size: 9px;
             color: #666;
+        }
+
+        /* Window controls */
+        .window-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            -webkit-app-region: no-drag;
+        }
+
+        .window-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(60, 60, 60, 0.8);
+            color: #e0e0e0;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .window-btn:hover {
+            background: rgba(80, 80, 80, 0.9);
+        }
+
+        .window-btn.minimize:hover {
+            background: rgba(52, 152, 219, 0.3);
+        }
+
+        .window-btn.close:hover {
+            background: rgba(231, 76, 60, 0.4);
         }
 
         /* Status bar */
@@ -266,9 +309,15 @@
 <body>
     <div class="pip-container">
         <!-- Drag handle -->
-        <div class="drag-handle">
-            <span class="title">🔒 Nvidia PiP</span>
-            <span class="subtitle">Hidden from capture</span>
+        <div class="drag-handle" data-tauri-drag-region>
+            <div class="title-area">
+                <span class="title">🔒 Nvidia PiP</span>
+                <span class="subtitle">Hidden from capture</span>
+            </div>
+            <div class="window-controls">
+                <button class="window-btn minimize" onclick="minimizeWindow()" title="Minimize">−</button>
+                <button class="window-btn close" onclick="closeWindow()" title="Close">×</button>
+            </div>
         </div>
 
         <!-- Status bar -->
@@ -428,6 +477,85 @@
             `;
             currentAnswer = null;
         }
+
+        // Window control functions for Tauri
+        async function minimizeWindow() {
+            if (window.__TAURI__) {
+                try {
+                    await window.__TAURI__.invoke('minimize_pip_window');
+                } catch (e) {
+                    console.error('Failed to minimize:', e);
+                }
+            }
+        }
+
+        async function closeWindow() {
+            if (window.__TAURI__) {
+                try {
+                    await window.__TAURI__.invoke('close_pip_window');
+                } catch (e) {
+                    console.error('Failed to close:', e);
+                }
+            }
+        }
+
+        // Drag functionality for Tauri v2
+        let isDragging = false;
+        let dragStartX = 0;
+        let dragStartY = 0;
+        let windowStartX = 0;
+        let windowStartY = 0;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const dragHandle = document.querySelector('.drag-handle');
+            if (!dragHandle) return;
+
+            dragHandle.addEventListener('mousedown', async (e) => {
+                // Don't drag if clicking on buttons
+                if (e.target.closest('.window-btn')) return;
+
+                isDragging = true;
+                dragStartX = e.screenX;
+                dragStartY = e.screenY;
+
+                if (window.__TAURI__) {
+                    try {
+                        const { getCurrentWindow } = window.__TAURI__.window;
+                        const appWindow = getCurrentWindow();
+                        const position = await appWindow.outerPosition();
+                        windowStartX = position.x;
+                        windowStartY = position.y;
+                    } catch (e) {
+                        console.error('Failed to get window position:', e);
+                    }
+                }
+            });
+
+            document.addEventListener('mousemove', async (e) => {
+                if (!isDragging) return;
+
+                const deltaX = e.screenX - dragStartX;
+                const deltaY = e.screenY - dragStartY;
+
+                if (window.__TAURI__) {
+                    try {
+                        const { getCurrentWindow } = window.__TAURI__.window;
+                        const appWindow = getCurrentWindow();
+                        await appWindow.setPosition({
+                            type: 'Physical',
+                            x: windowStartX + deltaX,
+                            y: windowStartY + deltaY
+                        });
+                    } catch (e) {
+                        console.error('Failed to move window:', e);
+                    }
+                }
+            });
+
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+        });
 
         // Initialize
         connect();

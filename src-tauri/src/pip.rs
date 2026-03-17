@@ -56,7 +56,7 @@ pub async fn open_pip_window(
     let pip_window = WebviewWindowBuilder::new(
         &app,
         "pip",
-        WebviewUrl::External(format!("http://localhost:5000").parse().unwrap()),
+        WebviewUrl::External(format!("http://localhost:5000/").parse().unwrap()),
     )
     .title("Nvidia PiP")
     .inner_size(window_width, window_height)
@@ -68,6 +68,10 @@ pub async fn open_pip_window(
     .visible(true)
     .build()
     .map_err(|e| format!("Failed to create PiP window: {}", e))?;
+
+    // Enable dragging the window by the title bar area
+    // This requires the HTML to have data-tauri-drag-region attribute
+    println!("[PiP] Window created with drag support enabled");
 
     // Apply screen capture exclusion
     #[cfg(target_os = "windows")]
@@ -107,12 +111,29 @@ pub async fn close_pip_window(app: AppHandle) -> Result<String, String> {
     }
 }
 
-/// Toggle the PiP window (open if closed, close if open)
+/// Toggle the PiP window (hide if visible, show if hidden)
 #[tauri::command]
 pub async fn toggle_pip_window(app: AppHandle) -> Result<String, String> {
-    if is_pip_open() {
-        close_pip_window(app).await
+    if let Some(window) = app.get_webview_window("pip") {
+        // Window exists, toggle visibility
+        match window.is_visible() {
+            Ok(true) => {
+                // Window is visible, hide it
+                window.hide().map_err(|e| format!("Failed to hide PiP window: {}", e))?;
+                println!("[PiP] Window hidden");
+                Ok("PiP window hidden".to_string())
+            }
+            Ok(false) => {
+                // Window is hidden, show it
+                window.show().map_err(|e| format!("Failed to show PiP window: {}", e))?;
+                window.set_focus().map_err(|e| format!("Failed to focus PiP window: {}", e))?;
+                println!("[PiP] Window shown");
+                Ok("PiP window shown".to_string())
+            }
+            Err(e) => Err(format!("Failed to check window visibility: {}", e))
+        }
     } else {
+        // Window doesn't exist, create it
         open_pip_window(app, None, None, None, None).await
     }
 }
@@ -121,6 +142,17 @@ pub async fn toggle_pip_window(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub fn is_pip_open() -> bool {
     PIP_OPEN.load(Ordering::SeqCst)
+}
+
+/// Minimize the PiP window
+#[tauri::command]
+pub async fn minimize_pip_window(app: AppHandle) -> Result<String, String> {
+    if let Some(window) = app.get_webview_window("pip") {
+        window.minimize().map_err(|e| format!("Failed to minimize PiP window: {}", e))?;
+        Ok("PiP window minimized".to_string())
+    } else {
+        Ok("PiP window not found".to_string())
+    }
 }
 
 /// Apply Windows SetWindowDisplayAffinity for screen capture exclusion

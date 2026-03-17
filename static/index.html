@@ -986,18 +986,12 @@
             const pipBtn = document.getElementById('pipBtn');
 
             // Send WebSocket message to trigger native PiP (Tauri app will handle it)
-            // Also open browser PiP as fallback/secondary display
+            // Only open Tauri PiP, no browser PiP
             if (!isPiPOpen) {
                 sendMessage(JSON.stringify({ type: 'open_pip_window' }));
-                // Also open browser PiP for the current browser window
-                openBrowserPiP();
+                isPiPOpen = true;
             } else {
                 sendMessage(JSON.stringify({ type: 'close_pip_window' }));
-                // Close browser PiP if open
-                if (pipWindow) {
-                    pipWindow.close();
-                    pipWindow = null;
-                }
                 isPiPOpen = false;
             }
 
