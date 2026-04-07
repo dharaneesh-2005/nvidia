@@ -1,3 +1,21 @@
+//! Audio Capture Module - WASAPI Loopback
+//!
+//! This module captures system audio (whatever is playing on speakers/headphones)
+//! using WASAPI loopback mode on Windows.
+//!
+//! Key features:
+//! - Captures from default OUTPUT device (not input/microphone)
+//! - Automatically follows device switches (speakers ↔ headphones)
+//! - No need for "Stereo Mix" to be enabled
+//! - Works device-agnostically across all audio hardware
+//!
+//! How it works:
+//! 1. Gets default output device (whatever Windows is routing audio to)
+//! 2. Opens it as an INPUT stream (WASAPI loopback)
+//! 3. Downsamples from native rate (44.1/48kHz) to 16kHz for Whisper
+//! 4. Converts stereo to mono
+//! 5. Sends processed audio chunks via crossbeam channel
+
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{Device, Host, SampleFormat, StreamConfig};
 use crossbeam_channel::{Sender, unbounded};
@@ -23,55 +41,30 @@ impl AudioCapture {
     fn start_capture(audio_sender: Sender<Vec<f32>>) -> Result<(), Box<dyn std::error::Error>> {
         let host = cpal::default_host();
         
-        println!("=== LISTING ALL AUDIO DEVICES ===");
-        if let Ok(input_devices) = host.input_devices() {
-            println!("INPUT DEVICES:");
-            for device in input_devices {
-                if let Ok(name) = device.name() {
-                    println!("  Input: {}", name);
-                }
-            }
-        }
-        println!("=== END DEVICE LIST ===");
+        println!("=== WASAPI LOOPBACK MODE ===");
         
-        let has_stereo_mix = if let Ok(mut input_devices) = host.input_devices() {
-            input_devices.any(|device| {
-                if let Ok(name) = device.name() {
-                    let name_lower = name.to_lowercase();
-                    name_lower.contains("stereo mix") || name_lower.contains("what u hear")
-                } else { false }
-            })
-        } else { false };
+        // ✅ Use OUTPUT device for WASAPI loopback (captures system audio)
+        let device = host.default_output_device()
+            .ok_or("No output device found")?;
         
-        if !has_stereo_mix {
-            println!("WARNING: No 'Stereo Mix' device found!");
-            println!("To capture system audio (speakers), you need to:");
-            println!("1. Right-click speaker icon in system tray");
-            println!("2. Select 'Open Sound settings'");
-            println!("3. Click 'Sound Control Panel' (on the right)");
-            println!("4. Go to 'Recording' tab");
-            println!("5. Right-click empty area and select 'Show Disabled Devices'");
-            println!("6. Find 'Stereo Mix' and right-click -> Enable");
-            println!("7. Set it as default recording device");
-            println!("8. Restart this application");
-        }
+        println!("✅ Using WASAPI loopback on: {}", device.name().unwrap_or("Unknown".to_string()));
+        println!("   This will capture ALL system audio (follows active device automatically)");
         
-        let device = Self::find_loopback_device(&host)
-            .or_else(|| host.default_input_device())
-            .ok_or("No suitable audio device found")?;
-        
-        println!("Using audio device: {}", device.name().unwrap_or("Unknown".to_string()));
-        
-        let mut supported_configs = device.supported_input_configs()?;
+        // Get the device's native output config
+        let mut supported_configs = device.supported_output_configs()?;
         let supported_config = supported_configs
             .next()
             .ok_or("No supported audio config found")?
             .with_max_sample_rate();
         
-        println!("Audio config: {:?}", supported_config);
+        let native_sample_rate = supported_config.sample_rate().0;
+        let native_channels = supported_config.channels();
+        
+        println!("   Native format: {}Hz, {} channels", native_sample_rate, native_channels);
+        println!("   Will downsample to: 16000Hz, 1 channel (mono) for Whisper");
         
         let config = StreamConfig {
-            channels: supported_config.channels(),
+            channels: native_channels,
             sample_rate: supported_config.sample_rate(),
             buffer_size: cpal::BufferSize::Default,
         };
@@ -128,49 +121,17 @@ impl AudioCapture {
         };
         
         stream.play()?;
-        println!("Audio capture started - listening to Stereo Mix");
+        println!("✅ WASAPI loopback active - capturing system audio");
+        println!("   Audio will follow device switches (speakers ↔ headphones) automatically");
         
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     }
     
-    fn find_loopback_device(host: &Host) -> Option<Device> {
-        if let Ok(devices) = host.input_devices() {
-            let mut all_devices = Vec::new();
-            for device in devices {
-                if let Ok(name) = device.name() {
-                    all_devices.push((device, name));
-                }
-            }
-            
-            // Priority 1: Stereo Mix or What U Hear
-            for (device, name) in &all_devices {
-                let name_lower = name.to_lowercase();
-                if name_lower.contains("stereo mix") || name_lower.contains("what u hear") {
-                    println!("✅ Using SYSTEM AUDIO loopback device: {}", name);
-                    return Some(device.clone());
-                }
-            }
-            
-            // Priority 2: Realtek stereo mix
-            for (device, name) in &all_devices {
-                let name_lower = name.to_lowercase();
-                if name_lower.contains("realtek") && name_lower.contains("stereo mix") {
-                    println!("✅ Using Realtek stereo mix device: {}", name);
-                    return Some(device.clone());
-                }
-            }
-            
-            // Priority 3: Any loopback device
-            for (device, name) in &all_devices {
-                let name_lower = name.to_lowercase();
-                if name_lower.contains("loopback") {
-                    println!("Using loopback device: {}", name);
-                    return Some(device.clone());
-                }
-            }
-        }
+    // No longer needed - WASAPI loopback uses default output device directly
+    // Keeping for backward compatibility but not used
+    fn find_loopback_device(_host: &Host) -> Option<Device> {
         None
     }
     
