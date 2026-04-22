@@ -72,6 +72,7 @@ pub async fn open_pip_window(
     .resizable(true)
     .skip_taskbar(true)          // Hide from taskbar
     .visible(true)
+    .focused(false)              // Don't steal focus when created
     .build()
     .map_err(|e| format!("Failed to create PiP window: {}", e))?;
 
@@ -81,6 +82,7 @@ pub async fn open_pip_window(
     #[cfg(target_os = "windows")]
     {
         apply_capture_exclusion_windows(&pip_window)?;
+        apply_no_activate_windows(&pip_window)?;
     }
 
     #[cfg(target_os = "macos")]
@@ -188,6 +190,34 @@ fn apply_capture_exclusion_windows(window: &tauri::WebviewWindow) -> Result<(), 
             Ok(())
         }
     }
+}
+
+/// Apply Windows WS_EX_NOACTIVATE to prevent focus stealing
+#[cfg(target_os = "windows")]
+fn apply_no_activate_windows(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+    };
+
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
+    let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+
+    unsafe {
+        let hwnd_win = windows::Win32::Foundation::HWND(hwnd_ptr);
+        
+        // Get current extended window styles
+        let current_style = GetWindowLongPtrW(hwnd_win, GWL_EXSTYLE);
+        
+        // Add WS_EX_NOACTIVATE flag to prevent window from being activated when clicked
+        let new_style = current_style | (WS_EX_NOACTIVATE.0 as isize);
+        
+        SetWindowLongPtrW(hwnd_win, GWL_EXSTYLE, new_style);
+        
+        println!("[PiP] ✓ WS_EX_NOACTIVATE applied - window won't steal focus");
+        println!("[PiP] You can click on the PiP window without losing focus on your browser");
+    }
+    
+    Ok(())
 }
 
 
