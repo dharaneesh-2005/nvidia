@@ -572,6 +572,7 @@
             </div>
             <div class="btn-group">
                 <button class="btn" onclick="captureScreen()">📸 Capture</button>
+                <button class="btn" onclick="captureMcq()" style="background: rgba(52, 152, 219, 0.3); border-color: rgba(52, 152, 219, 0.5);" title="MCQ Capture (Ctrl+Alt+Q)">📝 MCQ</button>
                 <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
                 <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
                 <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="Toggle PiP (Ctrl+Alt+P)">📺 PiP</button>
@@ -957,6 +958,10 @@
         
         function captureScreen() {
             sendMessage('capture_screen');
+        }
+        
+        function captureMcq() {
+            sendMessage('capture_mcq');
         }
         
         function debugCode() {

@@ -6,3 +6,5 @@ pub mod code;
 pub mod config;
 pub mod search;
 pub mod debug;
+pub mod mcq;
+pub mod mcq_hotkey;

@@ -24,6 +24,8 @@ use modules::{
     config::Config,
     search::SearchHotkey,
     debug::DebugHotkey,
+    mcq::McqHandler,
+    mcq_hotkey::McqHotkey,
 };
 
 type ConversationHistory = Arc<RwLock<Vec<ConversationMessage>>>;
@@ -107,6 +109,9 @@ async fn main() {
     
     // Start debug hotkey listener
     tokio::spawn(start_debug_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+    
+    // Start MCQ hotkey listener
+    tokio::spawn(start_mcq_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
     
     // Build web server
     let app = Router::new()
@@ -200,6 +205,8 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                 if let Some(Ok(axum::extract::ws::Message::Text(text))) = msg {
                     if text == "capture_screen" {
                         tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_mcq" {
+                        tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
                         tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "search_closed" {
@@ -497,6 +504,17 @@ async fn handle_debug_code(tx: broadcast::Sender<String>, groq: Arc<GroqClient>,
     }
 }
 
+async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    match ScreenCapture::capture_now() {
+        Ok(image_data) => {
+            process_mcq_screenshot(image_data, groq, &tx, conversation, buffer, connected).await;
+        }
+        Err(e) => {
+            error!("MCQ capture failed: {}", e);
+        }
+    }
+}
+
 async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>) {
     let mut screen_capture = ScreenCapture::new(hotkey);
     let mut multi_buffer: Vec<String> = Vec::new();
@@ -598,6 +616,23 @@ async fn start_debug_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<Gr
                     process_debug_screenshot(image_data, &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
                 }
                 Err(e) => error!("Debug capture failed: {}", e),
+            }
+        }
+    }
+}
+
+async fn start_mcq_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    let mut mcq_hotkey = McqHotkey::new();
+    
+    loop {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if mcq_hotkey.check_triggered() {
+            info!("MCQ hotkey (Ctrl+Alt+Q) triggered - capturing screen for MCQ analysis");
+            match ScreenCapture::capture_now() {
+                Ok(image_data) => {
+                    process_mcq_screenshot(image_data, groq.clone(), &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+                }
+                Err(e) => error!("MCQ capture failed: {}", e),
             }
         }
     }
@@ -874,6 +909,64 @@ async fn process_debug_screenshot(image_data: String, groq: &GroqClient, tx: &br
             send_or_buffer(tx, serde_json::json!({
                 "type": "answer",
                 "text": format!("Error analyzing code: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+    }
+}
+
+async fn process_mcq_screenshot(image_data: String, groq: Arc<GroqClient>, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    info!("Processing MCQ screenshot...");
+    
+    send_or_buffer(tx, serde_json::json!({
+        "type": "transcription",
+        "text": "Analyzing MCQ from screenshot..."
+    }).to_string(), &buffer, &connected).await;
+    
+    // Create MCQ handler (no conversation history needed for MCQ)
+    let mcq_handler = McqHandler::new(groq);
+    
+    // Step 1: Analyze MCQ screenshot using Scout model
+    match mcq_handler.analyze_mcq_image(&image_data).await {
+        Ok((mcq_data, _is_coding)) => {
+            info!("✓ MCQ analysis complete from Scout");
+            
+            // Check if recapture is needed
+            if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&mcq_data) {
+                if parsed["needs_recapture"].as_bool().unwrap_or(false) {
+                    let reason = parsed["reason"].as_str().unwrap_or("Low confidence. Please recapture.");
+                    send_or_buffer(tx, serde_json::json!({
+                        "type": "recapture_needed",
+                        "message": reason
+                    }).to_string(), &buffer, &connected).await;
+                    return;
+                }
+            }
+            
+            // Step 2: Solve MCQ using OSS-120B with tools (no conversation history)
+            match mcq_handler.solve_mcq(&mcq_data).await {
+                Ok(solution) => {
+                    info!("✓ MCQ solution complete from OSS-120B");
+                    
+                    // Don't add to conversation history as per requirement
+                    send_or_buffer(tx, serde_json::json!({
+                        "type": "answer",
+                        "text": solution
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("MCQ solving error: {}", e);
+                    send_or_buffer(tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Error solving MCQ: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Err(e) => {
+            error!("MCQ analysis error: {}", e);
+            send_or_buffer(tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Error analyzing MCQ: {}", e)
             }).to_string(), &buffer, &connected).await;
         }
     }
