@@ -53,6 +53,15 @@ pub async fn start_ws_client(app: AppHandle, url: String) {
                                                 let _ = crate::pip::toggle_pip_window(app_clone).await;
                                             });
                                         }
+                                        "set_pip_opacity" => {
+                                            if let Some(opacity) = json.get("opacity").and_then(|v| v.as_f64()) {
+                                                println!("[WS Client] Setting PiP opacity to {}", opacity);
+                                                let app_clone = app.clone();
+                                                tokio::spawn(async move {
+                                                    let _ = crate::pip::set_pip_opacity(app_clone, opacity).await;
+                                                });
+                                            }
+                                        }
                                         _ => {}
                                     }
                                 }

@@ -47,6 +47,116 @@
             z-index: 100;
         }
         
+        /* PiP-specific header styling */
+        body.pip-mode header {
+            user-select: none;
+        }
+        
+        /* PiP controls - only visible in PiP mode */
+        .pip-controls {
+            display: none;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(80, 80, 80, 0.2);
+        }
+        
+        body.pip-mode .pip-controls {
+            display: flex;
+        }
+        
+        .opacity-control {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
+        }
+        
+        .opacity-label {
+            color: #888;
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+        
+        .opacity-slider {
+            flex: 1;
+            height: 3px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(100, 100, 100, 0.5);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+        
+        .opacity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10a37f;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .opacity-slider::-webkit-slider-thumb:hover {
+            background: #0d8c6a;
+            transform: scale(1.2);
+        }
+        
+        .opacity-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10a37f;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+        
+        .opacity-slider::-moz-range-thumb:hover {
+            background: #0d8c6a;
+            transform: scale(1.2);
+        }
+        
+        .opacity-value {
+            color: #10a37f;
+            font-size: 10px;
+            font-weight: 600;
+            min-width: 32px;
+            text-align: right;
+        }
+        
+        .close-pip-btn {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(231, 76, 60, 0.3);
+            color: #e74c3c;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+        
+        .close-pip-btn:hover {
+            background: rgba(231, 76, 60, 0.5);
+            color: #fff;
+        }
+        
+        .close-pip-btn:active {
+            transform: scale(0.95);
+        }
+        
         .header-top {
             display: flex;
             justify-content: space-between;
@@ -565,7 +675,7 @@
 </head>
 <body>
     <div class="container">
-        <header>
+        <header id="mainHeader">
             <div class="header-top">
                 <h1>🎯 Nvidia</h1>
                 <div class="status" id="status">●</div>
@@ -577,6 +687,16 @@
                 <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
                 <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="Toggle PiP (Ctrl+Alt+P)">📺 PiP</button>
                 <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
+            </div>
+            <!-- PiP Controls (only visible in PiP mode) -->
+            <div class="pip-controls">
+                <div class="opacity-control">
+                    <span class="opacity-label">Opacity</span>
+                    <input type="range" class="opacity-slider" id="opacitySlider" 
+                           min="10" max="100" value="100" step="5">
+                    <span class="opacity-value" id="opacityValue">100%</span>
+                </div>
+                <button class="close-pip-btn" onclick="closePiPWindow()" title="Close PiP">×</button>
             </div>
         </header>
         
@@ -633,6 +753,138 @@
         // Observe DOM for new code blocks
         const observer = new MutationObserver(highlightNewCode);
         observer.observe(document.getElementById('chat'), { childList: true, subtree: true });
+        
+        // Detect if running in PiP mode (check URL params or window size)
+        const urlParams = new URLSearchParams(window.location.search);
+        const isPiPMode = urlParams.get('pip') === 'true' || window.innerWidth <= 500;
+        
+        if (isPiPMode) {
+            document.body.classList.add('pip-mode');
+            // Wait for Tauri API to load, then init PiP mode
+            if (window.__TAURI__) {
+                initPiPMode();
+            } else {
+                setTimeout(initPiPMode, 500);
+            }
+        }
+        
+        async function initPiPMode() {
+            // Initialize opacity slider
+            const slider = document.getElementById('opacitySlider');
+            const valueDisplay = document.getElementById('opacityValue');
+            
+            if (!slider || !valueDisplay) return;
+            
+            // Load saved opacity
+            const savedOpacity = localStorage.getItem('pipOpacity');
+            if (savedOpacity) {
+                slider.value = savedOpacity;
+                valueDisplay.textContent = savedOpacity + '%';
+                await setWindowOpacity(parseInt(savedOpacity) / 100);
+            }
+            
+            // Handle slider changes
+            slider.addEventListener('input', async (e) => {
+                const value = e.target.value;
+                valueDisplay.textContent = value + '%';
+                await setWindowOpacity(parseInt(value) / 100);
+                localStorage.setItem('pipOpacity', value);
+            });
+            
+            // Enable manual dragging using Tauri API
+            const dragHandle = document.querySelector('.header-top');
+            if (!dragHandle) return;
+            
+            let isDragging = false;
+            let dragStartX = 0;
+            let dragStartY = 0;
+            let windowStartX = 0;
+            let windowStartY = 0;
+            
+            dragHandle.addEventListener('mousedown', async (e) => {
+                isDragging = true;
+                dragStartX = e.screenX;
+                dragStartY = e.screenY;
+                
+                if (window.__TAURI__) {
+                    try {
+                        const { getCurrentWindow } = window.__TAURI__.window;
+                        const appWindow = getCurrentWindow();
+                        const position = await appWindow.outerPosition();
+                        windowStartX = position.x;
+                        windowStartY = position.y;
+                    } catch (e) {
+                        console.error('Failed to get window position:', e);
+                    }
+                }
+                
+                e.preventDefault();
+            });
+            
+            document.addEventListener('mousemove', async (e) => {
+                if (!isDragging) return;
+                
+                const deltaX = e.screenX - dragStartX;
+                const deltaY = e.screenY - dragStartY;
+                
+                if (window.__TAURI__) {
+                    try {
+                        const { getCurrentWindow } = window.__TAURI__.window;
+                        const appWindow = getCurrentWindow();
+                        await appWindow.setPosition({
+                            type: 'Physical',
+                            x: windowStartX + deltaX,
+                            y: windowStartY + deltaY
+                        });
+                    } catch (e) {
+                        console.error('Failed to move window:', e);
+                    }
+                }
+            });
+            
+            document.addEventListener('mouseup', () => {
+                isDragging = false;
+            });
+        }
+        
+        async function setWindowOpacity(opacity) {
+            // Try Tauri API first
+            if (window.__TAURI__) {
+                try {
+                    await window.__TAURI__.invoke('set_pip_opacity', { opacity });
+                    return;
+                } catch (e) {
+                    console.error('Failed to set opacity:', e);
+                }
+            }
+            
+            // Fallback: Send via WebSocket
+            if (typeof sendMessage === 'function') {
+                sendMessage(JSON.stringify({
+                    type: 'set_pip_opacity',
+                    opacity: opacity
+                }));
+            }
+        }
+        
+        async function closePiPWindow() {
+            // Try Tauri API first
+            if (window.__TAURI__) {
+                try {
+                    await window.__TAURI__.invoke('close_pip_window');
+                    return;
+                } catch (e) {
+                    console.error('Failed to close:', e);
+                }
+            }
+            
+            // Fallback: Send via WebSocket
+            if (typeof sendMessage === 'function') {
+                sendMessage(JSON.stringify({ type: 'close_pip_window' }));
+            }
+            
+            window.close();
+        }
     </script>
     <script>
         let ws;

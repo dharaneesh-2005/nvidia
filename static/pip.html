@@ -136,6 +136,97 @@
             font-weight: 500;
         }
 
+        .status-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .opacity-control {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .opacity-label {
+            color: #888;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .opacity-slider {
+            width: 80px;
+            height: 3px;
+            -webkit-appearance: none;
+            appearance: none;
+            background: rgba(100, 100, 100, 0.5);
+            border-radius: 2px;
+            outline: none;
+            cursor: pointer;
+        }
+
+        .opacity-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10a37f;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .opacity-slider::-webkit-slider-thumb:hover {
+            background: #0d8c6a;
+            transform: scale(1.2);
+        }
+
+        .opacity-slider::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10a37f;
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s;
+        }
+
+        .opacity-slider::-moz-range-thumb:hover {
+            background: #0d8c6a;
+            transform: scale(1.2);
+        }
+
+        .opacity-value {
+            color: #10a37f;
+            font-size: 9px;
+            font-weight: 600;
+            min-width: 28px;
+            text-align: right;
+        }
+
+        .close-btn-status {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+            border: none;
+            background: rgba(231, 76, 60, 0.3);
+            color: #e74c3c;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+            line-height: 1;
+        }
+
+        .close-btn-status:hover {
+            background: rgba(231, 76, 60, 0.5);
+            color: #fff;
+        }
+
         .capture-status {
             color: #10a37f;
             font-size: 9px;
@@ -316,7 +407,6 @@
             </div>
             <div class="window-controls">
                 <button class="window-btn minimize" onclick="minimizeWindow()" title="Minimize">−</button>
-                <button class="window-btn close" onclick="closeWindow()" title="Close">×</button>
             </div>
         </div>
 
@@ -326,7 +416,15 @@
                 <div class="status-dot" id="statusDot"></div>
                 <span class="status-text" id="statusText">Connecting...</span>
             </div>
-            <span class="capture-status">🔒 Hidden from capture</span>
+            <div class="status-controls">
+                <div class="opacity-control">
+                    <span class="opacity-label">Opacity</span>
+                    <input type="range" class="opacity-slider" id="opacitySlider" 
+                           min="10" max="100" value="100" step="5">
+                    <span class="opacity-value" id="opacityValue">100%</span>
+                </div>
+                <button class="close-btn-status" onclick="closeWindow()" title="Close PiP">×</button>
+            </div>
         </div>
 
         <!-- Chat area -->
@@ -555,7 +653,42 @@
             document.addEventListener('mouseup', () => {
                 isDragging = false;
             });
+
+            // Initialize opacity slider
+            initOpacityControl();
         });
+
+        // Opacity control
+        function initOpacityControl() {
+            const slider = document.getElementById('opacitySlider');
+            const valueDisplay = document.getElementById('opacityValue');
+
+            // Load saved opacity from localStorage
+            const savedOpacity = localStorage.getItem('pipOpacity');
+            if (savedOpacity) {
+                slider.value = savedOpacity;
+                valueDisplay.textContent = savedOpacity + '%';
+                setOpacity(parseInt(savedOpacity) / 100);
+            }
+
+            // Handle slider changes
+            slider.addEventListener('input', (e) => {
+                const value = e.target.value;
+                valueDisplay.textContent = value + '%';
+                setOpacity(parseInt(value) / 100);
+                localStorage.setItem('pipOpacity', value);
+            });
+        }
+
+        async function setOpacity(opacity) {
+            if (window.__TAURI__) {
+                try {
+                    await window.__TAURI__.invoke('set_pip_opacity', { opacity });
+                } catch (e) {
+                    console.error('Failed to set opacity:', e);
+                }
+            }
+        }
 
         // Initialize
         connect();

@@ -33,13 +33,13 @@ pub async fn open_pip_window(
     let window_width = width.unwrap_or(400.0);
     let window_height = height.unwrap_or(350.0);
 
-    // Calculate default position (bottom-right corner)
+    // Calculate default position (center of screen)
     let window_x = x.unwrap_or_else(|| {
-        // Get primary monitor size and position window in bottom-right
+        // Get primary monitor size and position window in center
         if let Some(monitor) = app.primary_monitor().ok().flatten() {
             let monitor_size = monitor.size();
             let monitor_pos = monitor.position();
-            (monitor_pos.x as f64) + (monitor_size.width as f64) - window_width - 20.0
+            (monitor_pos.x as f64) + ((monitor_size.width as f64) - window_width) / 2.0
         } else {
             100.0
         }
@@ -49,7 +49,7 @@ pub async fn open_pip_window(
         if let Some(monitor) = app.primary_monitor().ok().flatten() {
             let monitor_size = monitor.size();
             let monitor_pos = monitor.position();
-            (monitor_pos.y as f64) + (monitor_size.height as f64) - window_height - 40.0
+            (monitor_pos.y as f64) + ((monitor_size.height as f64) - window_height) / 2.0
         } else {
             100.0
         }
@@ -58,17 +58,17 @@ pub async fn open_pip_window(
     println!("[PiP] Creating PiP window at ({}, {}) with size {}x{}", 
         window_x, window_y, window_width, window_height);
 
-    // Create the PiP window with decorations for easy moving
+    // Create the PiP window with decorations for easy dragging
     let pip_window = WebviewWindowBuilder::new(
         &app,
         "pip",
-        WebviewUrl::External(format!("http://localhost:5000/").parse().unwrap()),
+        WebviewUrl::External(format!("http://localhost:5000/?pip=true").parse().unwrap()),
     )
     .title("Nvidia PiP")
     .inner_size(window_width, window_height)
     .position(window_x, window_y)
     .always_on_top(true)
-    .decorations(true)           // Enable title bar/borders for easy moving
+    .decorations(true)           // Enable title bar for easy dragging
     .resizable(true)
     .skip_taskbar(true)          // Hide from taskbar
     .visible(true)
@@ -76,7 +76,7 @@ pub async fn open_pip_window(
     .build()
     .map_err(|e| format!("Failed to create PiP window: {}", e))?;
 
-    println!("[PiP] Window created with title bar for easy moving");
+    println!("[PiP] Window created with title bar for dragging");
 
     // Apply screen capture exclusion
     #[cfg(target_os = "windows")]
@@ -117,29 +117,25 @@ pub async fn close_pip_window(app: AppHandle) -> Result<String, String> {
     }
 }
 
-/// Toggle the PiP window (hide if visible, show if hidden)
+/// Toggle the PiP window (close if open, create if closed)
+/// 
+/// Note: We close and recreate instead of hide/show because Windows doesn't
+/// preserve WDA_EXCLUDEFROMCAPTURE and WS_EX_NOACTIVATE flags when showing
+/// a hidden window. This ensures screen capture exclusion and no-focus behavior
+/// work correctly every time.
 #[tauri::command]
 pub async fn toggle_pip_window(app: AppHandle) -> Result<String, String> {
     if let Some(window) = app.get_webview_window("pip") {
-        // Window exists, toggle visibility
-        match window.is_visible() {
-            Ok(true) => {
-                // Window is visible, hide it
-                window.hide().map_err(|e| format!("Failed to hide PiP window: {}", e))?;
-                println!("[PiP] Window hidden");
-                Ok("PiP window hidden".to_string())
-            }
-            Ok(false) => {
-                // Window is hidden, show it
-                window.show().map_err(|e| format!("Failed to show PiP window: {}", e))?;
-                window.set_focus().map_err(|e| format!("Failed to focus PiP window: {}", e))?;
-                println!("[PiP] Window shown");
-                Ok("PiP window shown".to_string())
-            }
-            Err(e) => Err(format!("Failed to check window visibility: {}", e))
-        }
+        // Window exists, close it (don't just hide)
+        // This ensures flags are properly re-applied on next open
+        window.close().map_err(|e| format!("Failed to close PiP window: {}", e))?;
+        PIP_OPEN.store(false, Ordering::SeqCst);
+        println!("[PiP] Window closed (toggle off)");
+        Ok("PiP window closed".to_string())
     } else {
         // Window doesn't exist, create it
+        // This will apply all necessary flags (WDA_EXCLUDEFROMCAPTURE, WS_EX_NOACTIVATE)
+        println!("[PiP] Creating new window (toggle on)");
         open_pip_window(app, None, None, None, None).await
     }
 }
@@ -315,7 +311,7 @@ pub async fn update_pip_size(
 #[tauri::command]
 pub fn hide_pip_cursor(app: AppHandle) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        SetClassLongPtrW, GCLP_HCURSOR, GetClassLongPtrW,
+        SetClassLongPtrW, GCLP_HCURSOR,
     };
     use windows::Win32::Foundation::HWND;
 
@@ -342,5 +338,59 @@ pub fn show_pip_cursor(_app: AppHandle) -> Result<(), String> {
     // Cursor restoration is handled by the OS when the window is destroyed
     // CSS cursor styling is handled by the frontend
     println!("[PiP] Cursor show requested (handled by CSS)");
+    Ok(())
+}
+
+/// Set PiP window opacity (0.0 = fully transparent, 1.0 = fully opaque)
+/// Uses Windows Layered Window API for transparency
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn set_pip_opacity(app: AppHandle, opacity: f64) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongW, SetWindowLongW, SetLayeredWindowAttributes,
+        GWL_EXSTYLE, LWA_ALPHA, WS_EX_LAYERED,
+    };
+    use windows::Win32::Foundation::{HWND, COLORREF};
+
+    if let Some(window) = app.get_webview_window("pip") {
+        // Clamp opacity between 0.1 and 1.0 (prevent fully invisible window)
+        let clamped_opacity = opacity.max(0.1).min(1.0);
+        
+        // Convert opacity to alpha value (0-255)
+        let alpha = (clamped_opacity * 255.0) as u8;
+        
+        let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
+        let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+        
+        unsafe {
+            let hwnd_win = HWND(hwnd_ptr);
+            
+            // Get current extended window styles
+            let current_style = GetWindowLongW(hwnd_win, GWL_EXSTYLE);
+            
+            // Add WS_EX_LAYERED flag if not present (required for transparency)
+            let new_style = current_style | WS_EX_LAYERED.0 as i32;
+            SetWindowLongW(hwnd_win, GWL_EXSTYLE, new_style);
+            
+            // Set the alpha value (crKey is not used, set to 0)
+            let result = SetLayeredWindowAttributes(hwnd_win, COLORREF(0), alpha, LWA_ALPHA);
+            
+            if result.is_ok() {
+                println!("[PiP] Opacity set to {:.2} (alpha: {})", clamped_opacity, alpha);
+                Ok(())
+            } else {
+                Err("Failed to set layered window attributes".to_string())
+            }
+        }
+    } else {
+        Err("PiP window not found".to_string())
+    }
+}
+
+/// Set PiP window opacity (macOS/Linux fallback - not implemented)
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub async fn set_pip_opacity(_app: AppHandle, opacity: f64) -> Result<(), String> {
+    println!("[PiP] Opacity control not implemented for this platform");
     Ok(())
 }
