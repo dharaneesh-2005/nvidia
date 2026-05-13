@@ -83,6 +83,7 @@ pub async fn open_pip_window(
     {
         apply_capture_exclusion_windows(&pip_window)?;
         apply_no_activate_windows(&pip_window)?;
+        force_static_cursor_windows(&pip_window)?;
     }
 
     #[cfg(target_os = "macos")]
@@ -211,6 +212,38 @@ fn apply_no_activate_windows(window: &tauri::WebviewWindow) -> Result<(), String
         
         println!("[PiP] ✓ WS_EX_NOACTIVATE applied - window won't steal focus");
         println!("[PiP] You can click on the PiP window without losing focus on your browser");
+    }
+    
+    Ok(())
+}
+
+/// Force cursor to always be the standard arrow (no hand/resize/text cursors)
+/// This sets the window class cursor at the Windows API level
+#[cfg(target_os = "windows")]
+fn force_static_cursor_windows(window: &tauri::WebviewWindow) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        SetClassLongPtrW, LoadCursorW, SetCursor, GCLP_HCURSOR, IDC_ARROW,
+    };
+    use windows::Win32::Foundation::HWND;
+
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
+    let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+
+    unsafe {
+        let hwnd_win = HWND(hwnd_ptr);
+        
+        // Load the standard arrow cursor from system
+        let arrow_cursor = LoadCursorW(None, IDC_ARROW)
+            .map_err(|e| format!("Failed to load arrow cursor: {}", e))?;
+        
+        // Set the window class cursor to always be the arrow
+        SetClassLongPtrW(hwnd_win, GCLP_HCURSOR, arrow_cursor.0 as isize);
+        
+        // Also set the current cursor immediately
+        SetCursor(Some(arrow_cursor));
+        
+        println!("[PiP] ✓ Static cursor applied at Windows API level");
+        println!("[PiP] CSS will handle WebView cursor enforcement");
     }
     
     Ok(())

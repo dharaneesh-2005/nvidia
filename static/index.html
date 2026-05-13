@@ -52,6 +52,33 @@
             user-select: none;
         }
         
+        /* Force static cursor in PiP mode - override ALL cursor changes */
+        body.pip-mode,
+        body.pip-mode *,
+        body.pip-mode *:hover,
+        body.pip-mode button,
+        body.pip-mode button:hover,
+        body.pip-mode input,
+        body.pip-mode input:hover,
+        body.pip-mode select,
+        body.pip-mode a,
+        body.pip-mode .btn,
+        body.pip-mode .btn:hover,
+        body.pip-mode .opacity-slider,
+        body.pip-mode .opacity-slider:hover {
+            cursor: default !important;
+        }
+        
+        /* Force static cursor on slider thumb (WebKit/Chrome) */
+        body.pip-mode .opacity-slider::-webkit-slider-thumb {
+            cursor: default !important;
+        }
+        
+        /* Force static cursor on slider thumb (Firefox) */
+        body.pip-mode .opacity-slider::-moz-range-thumb {
+            cursor: default !important;
+        }
+        
         /* PiP controls - only visible in PiP mode */
         .pip-controls {
             display: none;
