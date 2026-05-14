@@ -267,6 +267,85 @@
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
+        
+        .mic-selector {
+            background: rgba(60, 60, 60, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 100, 100, 0.4);
+            color: #e0e0e0;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            outline: none;
+            max-width: 200px;
+        }
+        
+        .mic-selector:hover {
+            background: rgba(80, 80, 80, 0.9);
+        }
+        
+        .mic-selector option {
+            background: #2a2a2a;
+            color: #e0e0e0;
+        }
+        
+        /* Candidate speech indicator */
+        .candidate-indicator {
+            position: fixed;
+            bottom: 80px;
+            right: 20px;
+            background: rgba(16, 163, 127, 0.95);
+            border: 1px solid rgba(16, 163, 127, 0.6);
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            z-index: 999;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            display: none;
+            max-width: 300px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            animation: slideInRight 0.3s ease;
+        }
+        
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        
+        .candidate-indicator.active {
+            display: block;
+        }
+        
+        .candidate-indicator .ci-label {
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.9;
+            margin-bottom: 4px;
+        }
+        
+        .candidate-indicator .ci-text {
+            font-size: 11px;
+            line-height: 1.4;
+            margin-bottom: 4px;
+        }
+        
+        .candidate-indicator .ci-context {
+            font-size: 9px;
+            opacity: 0.8;
+        }
 
         .multi-capture-indicator {
             position: fixed;
@@ -708,12 +787,21 @@
                 <div class="status" id="status">●</div>
             </div>
             <div class="btn-group">
+                <select class="mic-selector" id="micSelector" onchange="changeMicrophone()">
+                    <option value="">🎤 Select Mic...</option>
+                </select>
                 <button class="btn" onclick="captureScreen()">📸 Capture</button>
                 <button class="btn" onclick="captureMcq()" style="background: rgba(52, 152, 219, 0.3); border-color: rgba(52, 152, 219, 0.5);" title="MCQ Capture (Ctrl+Alt+Q)">📝 MCQ</button>
                 <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
                 <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
                 <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="Toggle PiP (Ctrl+Alt+P)">📺 PiP</button>
                 <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
+            </div>
+            <!-- Candidate transcription indicator -->
+            <div class="candidate-indicator" id="candidateIndicator">
+                <div class="ci-label">🎤 You said:</div>
+                <div class="ci-text" id="candidateText"></div>
+                <div class="ci-context" id="candidateContext"></div>
             </div>
             <!-- PiP Controls (only visible in PiP mode) -->
             <div class="pip-controls">
@@ -941,7 +1029,73 @@
             if (cancelBtn) {
                 cancelBtn.addEventListener('click', cancelMultiCapture);
             }
+            
+            // Populate microphone list
+            populateMicrophoneList();
         });
+        
+        // Populate microphone list
+        async function populateMicrophoneList() {
+            try {
+                const response = await fetch('/api/microphones');
+                const data = await response.json();
+                
+                const micSelector = document.getElementById('micSelector');
+                if (!micSelector) return;
+                
+                // Clear existing options except the first one
+                micSelector.innerHTML = '<option value="">🎤 Select Mic...</option>';
+                
+                // Add microphone options
+                data.devices.forEach((device) => {
+                    const option = document.createElement('option');
+                    option.value = device[0]; // device ID (name)
+                    option.textContent = device[1]; // display name
+                    micSelector.appendChild(option);
+                });
+                
+                // Load saved selection
+                const savedMic = localStorage.getItem('selectedMicrophone');
+                if (savedMic) {
+                    micSelector.value = savedMic;
+                }
+                
+                console.log(`Found ${data.devices.length} microphone(s)`);
+            } catch (error) {
+                console.error('Failed to load microphones:', error);
+            }
+        }
+        
+        // Change microphone
+        function changeMicrophone() {
+            const micSelector = document.getElementById('micSelector');
+            if (!micSelector) return;
+            
+            const selectedMic = micSelector.value;
+            localStorage.setItem('selectedMicrophone', selectedMic);
+            
+            console.log('Microphone changed to:', selectedMic || 'default');
+            // Note: Mic change requires app restart to take effect
+        }
+        
+        // Show candidate transcription
+        function showCandidateTranscription(text, contextSize) {
+            const indicator = document.getElementById('candidateIndicator');
+            const textEl = document.getElementById('candidateText');
+            const contextEl = document.getElementById('candidateContext');
+            
+            if (!indicator || !textEl || !contextEl) return;
+            
+            textEl.textContent = text;
+            contextEl.textContent = `Added to context (${contextSize}/10)`;
+            
+            indicator.classList.add('active');
+            
+            // Auto-hide after 5 seconds
+            setTimeout(() => {
+                indicator.classList.remove('active');
+            }, 5000);
+        }
         
         // Save chat history whenever it changes
         function saveChat() {
@@ -1099,7 +1253,10 @@
         function handleMessage(data) {
             const chat = document.getElementById('chat');
             
-            if (data.type === 'multi_capture_update') {
+            if (data.type === 'candidate_transcription') {
+                // Show candidate transcription in indicator
+                showCandidateTranscription(data.text, data.context_size);
+            } else if (data.type === 'multi_capture_update') {
                 const count = Number.isFinite(data.count) ? data.count : parseInt(data.count || 0, 10);
                 updateMultiCaptureIndicator(Number.isFinite(count) ? count : 0);
             } else if (data.type === 'toggle_search') {

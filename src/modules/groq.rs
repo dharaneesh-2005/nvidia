@@ -211,6 +211,183 @@ impl GroqClient {
         self.chat_with_history(message, &[]).await
     }
     
+    /// Chat with both conversation history AND candidate context
+    /// Structures the prompt with separate windows:
+    /// - Profile (ALWAYS FULL)
+    /// - Interviewer questions summary + recent
+    /// - Candidate answers summary + recent
+    pub async fn chat_with_context(&self, message: &str, history: &[ConversationMessage], candidate_context: &[String]) -> Result<String, String> {
+        // Separate interviewer questions from conversation history
+        let interviewer_questions: Vec<&str> = history.iter()
+            .filter(|m| m.role == "user")
+            .map(|m| m.content.as_str())
+            .collect();
+        
+        // Build interviewer questions section (summarize if too many)
+        let interviewer_section = if interviewer_questions.len() > 5 {
+            let old_questions = &interviewer_questions[..interviewer_questions.len() - 5];
+            let recent_questions = &interviewer_questions[interviewer_questions.len() - 5..];
+            
+            let old_summary = old_questions.iter()
+                .map(|q| format!("- {}", q.chars().take(80).collect::<String>()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            
+            format!(
+                "INTERVIEWER'S PREVIOUS QUESTIONS (summary):\n{}\n\nINTERVIEWER'S RECENT QUESTIONS:\n{}",
+                old_summary,
+                recent_questions.iter()
+                    .enumerate()
+                    .map(|(i, q)| format!("{}. {}", i + 1, q))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else if !interviewer_questions.is_empty() {
+            format!(
+                "INTERVIEWER'S QUESTIONS SO FAR:\n{}",
+                interviewer_questions.iter()
+                    .enumerate()
+                    .map(|(i, q)| format!("{}. {}", i + 1, q))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else {
+            String::new()
+        };
+        
+        // Build candidate answers section (summarize if too many)
+        let candidate_section = if candidate_context.len() > 5 {
+            let old_answers = &candidate_context[..candidate_context.len() - 5];
+            let recent_answers = &candidate_context[candidate_context.len() - 5..];
+            
+            let old_summary = old_answers.iter()
+                .map(|a| format!("- {}", a.chars().take(80).collect::<String>()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            
+            format!(
+                "CANDIDATE'S PREVIOUS ANSWERS (summary):\n{}\n\nCANDIDATE'S RECENT ANSWERS:\n{}",
+                old_summary,
+                recent_answers.iter()
+                    .enumerate()
+                    .map(|(i, a)| format!("{}. {}", i + 1, a))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else if !candidate_context.is_empty() {
+            format!(
+                "CANDIDATE'S ANSWERS SO FAR:\n{}",
+                candidate_context.iter()
+                    .enumerate()
+                    .map(|(i, a)| format!("{}. {}", i + 1, a))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else {
+            String::new()
+        };
+        
+        // Build context block
+        let context_block = match (interviewer_section.is_empty(), candidate_section.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => format!("\n\n{}\n", interviewer_section),
+            (true, false) => format!("\n\n{}\n", candidate_section),
+            (false, false) => format!("\n\n{}\n\n{}\n", interviewer_section, candidate_section),
+        };
+        
+        // Build system prompt: Profile (FULL) + Context Windows + Instructions
+        let system_prompt = if !self.user_profile.is_empty() {
+            format!(
+                "You are helping a CS student named Dharaneesh answer questions in a technical interview. \
+                Speak AS him, using his real background below.\n\n\
+                PROFILE (FULL - use for any question about experience/projects):\n{}\n\
+                {}\
+                HOW TO ANSWER:\n\
+                - CRITICAL: The candidate has already spoken the answers listed above. Build upon what they said.\n\
+                - If the interviewer asks a follow-up, reference what the candidate already mentioned.\n\
+                - Start with one clear sentence that directly answers the question\n\
+                - Then explain in 3-5 natural sentences — like talking to someone face to face\n\
+                - Use simple words. If you must use a technical term, explain it in the same breath\n\
+                - Give one small real-world example if it makes it clearer\n\
+                - Stop there. Do not summarize. Do not repeat.\n\n\
+                VOICE STYLE:\n\
+                - Speak like a confident final-year engineering student from Tamil Nadu\n\
+                - Natural connectors: 'So basically', 'The thing is', 'What happens here is', 'In simple terms'\n\
+                - Avoid: 'Furthermore', 'Moreover', 'It is worth noting', 'In conclusion'\n\
+                - If asked about YOUR experience or projects: use ONLY what is in the profile above\n\
+                - If it is a concept question: just explain the concept simply\n\n\
+                LENGTH RULE: Your answer must be speakable in under 100 seconds. \
+                If it takes longer, you have said too much.",
+                self.user_profile,
+                context_block
+            )
+        } else {
+            format!(
+                "You are helping a CS student answer questions in a technical interview.\n\
+                {}\
+                HOW TO ANSWER:\n\
+                - CRITICAL: The candidate has already spoken the answers listed above. Build upon what they said.\n\
+                - If the interviewer asks a follow-up, reference what the candidate already mentioned.\n\
+                - Start with one clear sentence that directly answers the question\n\
+                - Then explain in 3-5 natural sentences — like talking to someone face to face\n\
+                - Use simple words. If you must use a technical term, explain it in the same breath\n\
+                - Give one small real-world example if it makes it clearer\n\
+                - Stop there. Do not summarize. Do not repeat.\n\n\
+                VOICE STYLE:\n\
+                - Speak like a confident final-year engineering student from Tamil Nadu\n\
+                - Natural connectors: 'So basically', 'The thing is', 'What happens here is', 'In simple terms'\n\
+                - Avoid: 'Furthermore', 'Moreover', 'It is worth noting', 'In conclusion'\n\n\
+                LENGTH RULE: Your answer must be speakable in under 100 seconds. \
+                If it takes longer, you have said too much.",
+                context_block
+            )
+        };
+        
+        let mut messages = vec![json!({
+            "role": "system",
+            "content": system_prompt
+        })];
+        
+        // Add only recent conversation history (last 6 exchanges to save tokens)
+        let recent_history: Vec<_> = history.iter().rev().take(12).rev().collect();
+        for msg in recent_history {
+            messages.push(json!({
+                "role": msg.role,
+                "content": msg.content
+            }));
+        }
+        
+        // Add current question
+        messages.push(json!({
+            "role": "user",
+            "content": message
+        }));
+        
+        let payload = json!({
+            "model": "openai/gpt-oss-20b",
+            "messages": messages,
+            "temperature": 0.5,
+            "max_tokens": 1500
+        });
+        
+        let response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        
+        Ok(content)
+    }
+    
     async fn analyze_images_internal(&self, images: &[&str], history: &[ConversationMessage]) -> Result<(String, bool), String> {
         if images.is_empty() {
             return Err("No images provided".to_string());

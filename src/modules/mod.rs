@@ -1,5 +1,7 @@
 pub mod audio;
 pub mod audio_processor;
+pub mod mic_capture;
+pub mod mic_processor;
 pub mod screen;
 pub mod groq;
 pub mod code;

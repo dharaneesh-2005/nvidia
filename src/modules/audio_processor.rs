@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use tokio::sync::{broadcast, RwLock};
-use tracing::{info, warn, error};
+use tracing::{info, error};
 use crate::modules::groq::{GroqClient, ConversationMessage};
 
 // Configuration constants
@@ -35,12 +35,14 @@ const VOICE_FREQ_MAX: f32 = 300.0; // Hz
 // Type aliases matching main.rs
 type ConversationHistory = Arc<RwLock<Vec<ConversationMessage>>>;
 type MessageBuffer = Arc<RwLock<VecDeque<String>>>;
+type CandidateContext = Arc<RwLock<VecDeque<String>>>;
 
 pub struct AudioProcessor {
     audio_receiver: Receiver<Vec<f32>>,
     groq_client: Arc<GroqClient>,
     tx: broadcast::Sender<String>,
     conversation: ConversationHistory,
+    candidate_context: CandidateContext, // NEW: Candidate's responses
     buffer: MessageBuffer,
     connected: Arc<AtomicUsize>,
     
@@ -71,6 +73,7 @@ impl AudioProcessor {
         groq_client: Arc<GroqClient>,
         tx: broadcast::Sender<String>,
         conversation: ConversationHistory,
+        candidate_context: CandidateContext, // NEW
         buffer: MessageBuffer,
         connected: Arc<AtomicUsize>,
     ) -> Self {
@@ -80,6 +83,7 @@ impl AudioProcessor {
             groq_client,
             tx,
             conversation,
+            candidate_context, // NEW
             buffer,
             connected,
             accumulated_audio: Vec::with_capacity(16000 * 30),
@@ -343,6 +347,10 @@ impl AudioProcessor {
                     info!("Sending to AI for answer...");
                     let history = self.conversation.read().await.clone();
                     
+                    // Get candidate context (last 10 messages)
+                    let candidate_ctx = self.candidate_context.read().await.clone();
+                    let candidate_context_vec: Vec<String> = candidate_ctx.into_iter().collect();
+                    
                     // Retry mechanism with 3-second timeout
                     let mut attempt = 1;
                     let max_attempts = 3;
@@ -353,7 +361,7 @@ impl AudioProcessor {
                         
                         let result = tokio::time::timeout(
                             timeout_duration,
-                            self.groq_client.chat_with_history(text, &history)
+                            self.groq_client.chat_with_context(text, &history, &candidate_context_vec)
                         ).await;
                         
                         match result {

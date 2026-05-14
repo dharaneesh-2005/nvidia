@@ -18,6 +18,8 @@ use crossbeam_channel::RecvTimeoutError;
 use modules::{
     audio::AudioCapture,
     audio_processor::AudioProcessor,
+    mic_capture::MicCapture,
+    mic_processor::MicProcessor,
     screen::ScreenCapture,
     groq::{GroqClient, ConversationMessage},
     code::CodeManager,
@@ -30,6 +32,7 @@ use modules::{
 
 type ConversationHistory = Arc<RwLock<Vec<ConversationMessage>>>;
 type MessageBuffer = Arc<RwLock<VecDeque<String>>>;
+type CandidateContext = Arc<RwLock<VecDeque<String>>>; // Last 10 candidate responses
 
 #[derive(Clone)]
 struct AppState {
@@ -37,6 +40,7 @@ struct AppState {
     groq: Arc<GroqClient>,
     code_manager: Arc<CodeManager>,
     conversation: ConversationHistory,
+    candidate_context: CandidateContext, // NEW: Candidate's spoken responses
     message_buffer: MessageBuffer,
     client_connections: Arc<AtomicUsize>,
     search_hotkey: Arc<tokio::sync::Mutex<SearchHotkey>>,
@@ -87,14 +91,18 @@ async fn main() {
         groq: groq.clone(),
         code_manager: code_manager.clone(),
         conversation: Arc::new(RwLock::new(Vec::new())),
+        candidate_context: Arc::new(RwLock::new(VecDeque::new())), // NEW: Candidate context
         message_buffer: Arc::new(RwLock::new(VecDeque::new())),
         client_connections: Arc::new(AtomicUsize::new(0)),
         search_hotkey: search_hotkey,
         multi_capture_cancel: multi_capture_cancel.clone(),
     };
     
-    // Start audio capture with proper streaming
-    tokio::spawn(start_audio_capture(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+    // Start audio capture with proper streaming (interviewer questions)
+    tokio::spawn(start_audio_capture(tx.clone(), groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+    
+    // Start microphone capture (candidate answers)
+    tokio::spawn(start_mic_capture(groq.clone(), state.candidate_context.clone(), tx.clone(), state.message_buffer.clone(), state.client_connections.clone()));
     
     // Start screen capture hotkey listener
     tokio::spawn(start_screen_capture_hotkey(
@@ -117,6 +125,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/ws", get(ws_handler))
+        .route("/api/microphones", get(list_microphones))
         .route("/api/code/files", get(get_files))
         .route("/api/code/content", post(get_file_content))
         .route("/api/code/query", post(query_code))
@@ -133,6 +142,13 @@ async fn main() {
 
 async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../static/index.html"))
+}
+
+async fn list_microphones() -> Json<serde_json::Value> {
+    let devices = MicCapture::list_devices();
+    Json(serde_json::json!({
+        "devices": devices
+    }))
 }
 
 async fn pip_toggle_handler(State(state): State<AppState>) -> impl IntoResponse {
@@ -270,6 +286,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let tx_clone = state.tx.clone();
                                     let groq = state.groq.clone();
                                     let conversation = state.conversation.clone();
+                                    let candidate_ctx = state.candidate_context.clone();
                                     let buffer = state.message_buffer.clone();
                                     let connected = state.client_connections.clone();
                                     tokio::spawn(async move {
@@ -293,6 +310,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             info!("🔍 [SEARCH LOG] History[{}]: {} - '{}'", i, msg.role, content_preview);
                                         }
                                         
+                                        // Get candidate context for AI
+                                        let candidate_context_vec: Vec<String> = candidate_ctx.read().await.iter().cloned().collect();
+                                        info!("🔍 [SEARCH LOG] Candidate context size: {}", candidate_context_vec.len());
+                                        
                                         info!("🔍 [SEARCH LOG] Sending to AI model: '{}'", question);
                                         
                                         // Try with 4-second timeout, retry once if it fails
@@ -305,7 +326,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                             
                                             let result = tokio::time::timeout(
                                                 timeout_duration,
-                                                groq.chat_with_history(&question, &history)
+                                                groq.chat_with_context(&question, &history, &candidate_context_vec)
                                             ).await;
                                             
                                             match result {
@@ -460,7 +481,7 @@ async fn query_code(
     Json(serde_json::json!({ "response": response }))
 }
 
-async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     let (_audio_capture, audio_receiver) = AudioCapture::new();
     
     std::thread::spawn(move || {
@@ -475,6 +496,7 @@ async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient
                 groq,
                 tx,
                 conversation,
+                candidate_context,
                 buffer,
                 connected
             );
@@ -483,6 +505,28 @@ async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient
     });
 }
 
+async fn start_mic_capture(groq: Arc<GroqClient>, candidate_context: CandidateContext, tx: broadcast::Sender<String>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+    let (_mic_capture, mic_receiver) = MicCapture::new();
+    
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        
+        rt.block_on(async {
+            let mut processor = MicProcessor::new(
+                mic_receiver,
+                groq,
+                tx,
+                candidate_context,
+                buffer,
+                connected
+            );
+            processor.run().await;
+        });
+    });
+}
 
 
 async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
