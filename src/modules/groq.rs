@@ -77,9 +77,13 @@ impl GroqClient {
                 .text("response_format", "text");
 
             if let Some(p) = prompt {
-                form = form.text("prompt", p.to_string());
+                if !p.is_empty() {
+                    form = form.text("prompt", p.to_string());
+                }
+                // Empty string = no prompt bias (for candidate mic)
             } else {
-                form = form.text("prompt", "Indian English accent. Technical interview question about programming, databases, algorithms, or computer science.");
+                // Default prompt for interviewer system audio only
+                form = form.text("prompt", "Interview conversation in Indian English accent.");
             }
             
             let result = self.client
@@ -214,8 +218,9 @@ impl GroqClient {
     /// Chat with both conversation history AND candidate context
     /// Structures the prompt with separate windows:
     /// - Profile (ALWAYS FULL)
-    /// - Interviewer questions summary + recent
-    /// - Candidate answers summary + recent
+    /// - Interviewer questions: last 5 exact + older summarized
+    /// - Candidate answers: last 5 exact + older summarized
+    /// - Conversation history: last 10 messages (5 Q&A pairs)
     pub async fn chat_with_context(&self, message: &str, history: &[ConversationMessage], candidate_context: &[String]) -> Result<String, String> {
         // Separate interviewer questions from conversation history
         let interviewer_questions: Vec<&str> = history.iter()
@@ -223,18 +228,23 @@ impl GroqClient {
             .map(|m| m.content.as_str())
             .collect();
         
-        // Build interviewer questions section (summarize if too many)
+        // Build interviewer questions section
+        // Keep last 5 exact, summarize older ones (up to 10 more)
         let interviewer_section = if interviewer_questions.len() > 5 {
-            let old_questions = &interviewer_questions[..interviewer_questions.len() - 5];
+            let split_at = interviewer_questions.len().saturating_sub(5);
+            let old_questions = &interviewer_questions[..split_at.min(10)]; // Max 10 old ones
             let recent_questions = &interviewer_questions[interviewer_questions.len() - 5..];
             
             let old_summary = old_questions.iter()
-                .map(|q| format!("- {}", q.chars().take(80).collect::<String>()))
+                .map(|q| {
+                    let truncated: String = q.chars().take(100).collect();
+                    format!("- {}", truncated)
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             
             format!(
-                "INTERVIEWER'S PREVIOUS QUESTIONS (summary):\n{}\n\nINTERVIEWER'S RECENT QUESTIONS:\n{}",
+                "INTERVIEWER'S EARLIER QUESTIONS (summarized):\n{}\n\nINTERVIEWER'S RECENT QUESTIONS (exact):\n{}",
                 old_summary,
                 recent_questions.iter()
                     .enumerate()
@@ -244,7 +254,7 @@ impl GroqClient {
             )
         } else if !interviewer_questions.is_empty() {
             format!(
-                "INTERVIEWER'S QUESTIONS SO FAR:\n{}",
+                "INTERVIEWER'S QUESTIONS:\n{}",
                 interviewer_questions.iter()
                     .enumerate()
                     .map(|(i, q)| format!("{}. {}", i + 1, q))
@@ -255,18 +265,23 @@ impl GroqClient {
             String::new()
         };
         
-        // Build candidate answers section (summarize if too many)
+        // Build candidate answers section
+        // Keep last 5 exact, summarize older ones (up to 10 more)
         let candidate_section = if candidate_context.len() > 5 {
-            let old_answers = &candidate_context[..candidate_context.len() - 5];
+            let split_at = candidate_context.len().saturating_sub(5);
+            let old_answers = &candidate_context[..split_at.min(10)]; // Max 10 old ones
             let recent_answers = &candidate_context[candidate_context.len() - 5..];
             
             let old_summary = old_answers.iter()
-                .map(|a| format!("- {}", a.chars().take(80).collect::<String>()))
+                .map(|a| {
+                    let truncated: String = a.chars().take(100).collect();
+                    format!("- {}", truncated)
+                })
                 .collect::<Vec<_>>()
                 .join("\n");
             
             format!(
-                "CANDIDATE'S PREVIOUS ANSWERS (summary):\n{}\n\nCANDIDATE'S RECENT ANSWERS:\n{}",
+                "CANDIDATE'S EARLIER ANSWERS (summarized):\n{}\n\nCANDIDATE'S RECENT ANSWERS (exact):\n{}",
                 old_summary,
                 recent_answers.iter()
                     .enumerate()
@@ -276,7 +291,7 @@ impl GroqClient {
             )
         } else if !candidate_context.is_empty() {
             format!(
-                "CANDIDATE'S ANSWERS SO FAR:\n{}",
+                "CANDIDATE'S ANSWERS:\n{}",
                 candidate_context.iter()
                     .enumerate()
                     .map(|(i, a)| format!("{}. {}", i + 1, a))
@@ -348,8 +363,9 @@ impl GroqClient {
             "content": system_prompt
         })];
         
-        // Add only recent conversation history (last 6 exchanges to save tokens)
-        let recent_history: Vec<_> = history.iter().rev().take(12).rev().collect();
+        // Only send last 10 messages (5 Q&A pairs) as chat history
+        // This prevents token overflow while keeping recent conversation flow
+        let recent_history: Vec<_> = history.iter().rev().take(10).rev().collect();
         for msg in recent_history {
             messages.push(json!({
                 "role": msg.role,
@@ -476,10 +492,25 @@ impl GroqClient {
         self.analyze_images_internal(&refs, history).await
     }
     
-    pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage]) -> Result<String, String> {
+    pub async fn solve_coding_problem(&self, problem: &str, history: &[ConversationMessage], candidate_context: &[String]) -> Result<String, String> {
         let recent_history: Vec<_> = history.iter().rev().take(25).rev().collect();
         
-        let system_prompt = "You are a technical interview expert specializing in DSA problems. Provide clear, structured, and detailed explanations.\n\n**PRIMARY USE CASE: DSA PROBLEMS (90%)**\nFor coding/algorithm questions, use this EXACT format:\n\n## PROBLEM UNDERSTANDING\n[Explain what the problem is asking in simple words - 2-3 sentences]\n\n## APPROACH 1: BRUTE FORCE\n\n**Intuition:**\n[Explain the straightforward approach in simple, conversational language - like explaining to a friend. Use 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain first step]\n- Step 2: [Explain second step]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// If predefined structure exists (class Solution), use it EXACTLY\n// Otherwise use: int main() { int t; cin >> t; while(t--) { } }\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n²) where n = size of input array\n- Space Complexity: O(1) where we use constant extra space\n\n---\n\n## APPROACH 2: OPTIMAL SOLUTION\n\n**Intuition:**\n[Explain the optimized approach in simple words. What's the key insight that makes it faster? 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain optimization step 1]\n- Step 2: [Explain optimization step 2]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// Optimized implementation\n// Use EXACT predefined structure if given\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n) where n = size of input array\n- Space Complexity: O(n) where n = space used for hash map\n\n---\n\n## COMPARISON\n[Compare both approaches - which is better and why? When to use which? 2-3 sentences]\n\n---\n\n**EDGE CASES (10%): System Design / General Questions**\nIf the question is NOT a DSA problem (system design, conceptual, etc.), provide a clear conversational answer with:\n- Simple explanation\n- Key points as bullet points\n- Examples if helpful\n\n---\n\n**CRITICAL RULES:**\n1. **Code Structure:**\n   - Use #include <bits/stdc++.h> and using namespace std;\n   - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n   - If predefined structure exists (class Solution { public: ... }), use it EXACTLY\n   - If NO predefined structure, use: int main() { int t; cin >> t; while(t--) { } return 0; }\n   - NEVER mix class-based and main()-based approaches\n\n2. **Complexity Explanation:**\n   - ALWAYS explain what each variable in O() notation means\n   - Example: O(n*m) where n=rows, m=columns\n   - Example: O(V+E) where V=vertices, E=edges\n   - Use simple, clear language\n\n3. **Code Style:**\n   - Keep code SIMPLE and readable\n   - Use short variable names (n, m, i, j, x, y)\n   - Add brief comments for clarity\n   - Follow the predefined structure if given\n\n4. **Explanation Style:**\n   - Write like you're explaining to a friend\n   - Use conversational, simple language\n   - Break down complex ideas into steps\n   - Focus on WHY, not just WHAT\n\n5. **Tools:**\n   - Use browser_search to find optimal solutions\n   - Use code_interpreter to verify logic\n   - ALWAYS provide the MOST efficient solution";
+        // Build candidate context section for 120B
+        let candidate_section = if !candidate_context.is_empty() {
+            let recent: Vec<_> = candidate_context.iter().rev().take(5).collect();
+            format!(
+                "\n\nCANDIDATE HAS MENTIONED (use their stated approach if relevant):\n{}\n",
+                recent.iter().rev()
+                    .enumerate()
+                    .map(|(i, a)| format!("{}. {}", i + 1, a))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else {
+            String::new()
+        };
+        
+        let system_prompt = format!("You are a technical interview expert specializing in DSA problems. Provide clear, structured, and detailed explanations.{}\n\n**PRIMARY USE CASE: DSA PROBLEMS (90%)**\nFor coding/algorithm questions, use this EXACT format:\n\n## PROBLEM UNDERSTANDING\n[Explain what the problem is asking in simple words - 2-3 sentences]\n\n## APPROACH 1: BRUTE FORCE\n\n**Intuition:**\n[Explain the straightforward approach in simple, conversational language - like explaining to a friend. Use 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain first step]\n- Step 2: [Explain second step]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// If predefined structure exists (class Solution), use it EXACTLY\n// Otherwise use: int main() {{ int t; cin >> t; while(t--) {{ }} }}\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n²) where n = size of input array\n- Space Complexity: O(1) where we use constant extra space\n\n---\n\n## APPROACH 2: OPTIMAL SOLUTION\n\n**Intuition:**\n[Explain the optimized approach in simple words. What's the key insight that makes it faster? 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain optimization step 1]\n- Step 2: [Explain optimization step 2]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// Optimized implementation\n// Use EXACT predefined structure if given\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n) where n = size of input array\n- Space Complexity: O(n) where n = space used for hash map\n\n---\n\n## COMPARISON\n[Compare both approaches - which is better and why? When to use which? 2-3 sentences]\n\n---\n\n**EDGE CASES (10%): System Design / General Questions**\nIf the question is NOT a DSA problem (system design, conceptual, etc.), provide a clear conversational answer with:\n- Simple explanation\n- Key points as bullet points\n- Examples if helpful\n\n---\n\n**CRITICAL RULES:**\n1. **Code Structure:**\n   - Use #include <bits/stdc++.h> and using namespace std;\n   - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n   - If predefined structure exists (class Solution {{ public: ... }}), use it EXACTLY\n   - If NO predefined structure, use: int main() {{ int t; cin >> t; while(t--) {{ }} return 0; }}\n   - NEVER mix class-based and main()-based approaches\n\n2. **Complexity Explanation:**\n   - ALWAYS explain what each variable in O() notation means\n   - Example: O(n*m) where n=rows, m=columns\n   - Use simple, clear language\n\n3. **Code Style:**\n   - Keep code SIMPLE and readable\n   - Use short variable names (n, m, i, j, x, y)\n   - Add brief comments for clarity\n   - Follow the predefined structure if given\n\n4. **Explanation Style:**\n   - Write like you're explaining to a friend\n   - Use conversational, simple language\n   - Break down complex ideas into steps\n   - Focus on WHY, not just WHAT\n\n5. **If candidate mentioned an approach:**\n   - PRIORITIZE their stated approach as the optimal solution\n   - Show it works correctly\n   - Only suggest alternatives if their approach is suboptimal", candidate_section);
         
         let mut messages = vec![json!({
             "role": "system",

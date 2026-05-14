@@ -337,11 +337,20 @@ impl AudioProcessor {
                         }
                     }).to_string()).await;
 
-                    // 2. Add to history
-                    self.conversation.write().await.push(ConversationMessage {
-                        role: "user".to_string(),
-                        content: text.to_string(),
-                    });
+                    // 2. Add to history (keep bounded to last 30 messages = 15 Q&A pairs)
+                    {
+                        let mut conv = self.conversation.write().await;
+                        conv.push(ConversationMessage {
+                            role: "user".to_string(),
+                            content: text.to_string(),
+                        });
+                        // Trim to last 30 messages (15 questions + 15 answers)
+                        if conv.len() > 30 {
+                            let drain_count = conv.len() - 30;
+                            conv.drain(..drain_count);
+                            info!("Conversation history trimmed to 30 messages");
+                        }
+                    }
 
                     // 3. Get Answer (Question Sending)
                     info!("Sending to AI for answer...");

@@ -110,6 +110,7 @@ async fn main() {
         groq.clone(),
         config.hotkey.clone(),
         state.conversation.clone(),
+        state.candidate_context.clone(),
         state.message_buffer.clone(),
         state.client_connections.clone(),
         multi_capture_cancel.clone(),
@@ -529,10 +530,10 @@ async fn start_mic_capture(groq: Arc<GroqClient>, candidate_context: CandidateCo
 }
 
 
-async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+async fn handle_screen_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     match ScreenCapture::capture_now() {
         Ok(image_data) => {
-            process_screenshot(vec![image_data], &groq, &tx, conversation, buffer, connected).await;
+            process_screenshot(vec![image_data], &groq, &tx, conversation, candidate_context, buffer, connected).await;
         }
         Err(e) => {
             error!("Screen capture failed: {}", e);
@@ -562,7 +563,7 @@ async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>
     }
 }
 
-async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>) {
+async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>) {
     let mut screen_capture = ScreenCapture::new(hotkey);
     let mut multi_buffer: Vec<String> = Vec::new();
     
@@ -608,9 +609,9 @@ async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<Gr
                     "type": "multi_capture_update",
                     "count": 0
                 }).to_string());
-                process_screenshot(images, &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+                process_screenshot(images, &groq, &tx, conversation.clone(), candidate_context.clone(), buffer.clone(), connected.clone()).await;
             } else {
-                process_screenshot(vec![image_data], &groq, &tx, conversation.clone(), buffer.clone(), connected.clone()).await;
+                process_screenshot(vec![image_data], &groq, &tx, conversation.clone(), candidate_context.clone(), buffer.clone(), connected.clone()).await;
             }
         }
     }
@@ -1019,7 +1020,7 @@ async fn process_mcq_screenshot(image_data: String, groq: Arc<GroqClient>, tx: &
     }
 }
 
-async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx: &broadcast::Sender<String>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     if image_data_list.is_empty() {
         return;
     }
@@ -1155,7 +1156,8 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
                 
                 info!("Calling solve_coding_problem with GPT-OSS-120B...");
                 let history = conversation.read().await.clone();
-                match groq.solve_coding_problem(&problem_data, &history).await {
+                let ctx: Vec<String> = candidate_context.read().await.iter().cloned().collect();
+                match groq.solve_coding_problem(&problem_data, &history, &ctx).await {
                     Ok(solution) => {
                         info!("✓ Solution received: {} chars", solution.len());
                         conversation.write().await.push(ConversationMessage {
@@ -1191,7 +1193,8 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
                             
                             info!("Answering system design question with GPT-OSS-120B...");
                             let history = conversation.read().await.clone();
-                            match groq.solve_coding_problem(&formatted, &history).await {
+                            let ctx: Vec<String> = candidate_context.read().await.iter().cloned().collect();
+                            match groq.solve_coding_problem(&formatted, &history, &ctx).await {
                                 Ok(answer) => {
                                     conversation.write().await.push(ConversationMessage {
                                         role: "assistant".to_string(),
@@ -1226,7 +1229,8 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
                             
                             info!("🐛 Sending debug request to GPT-OSS-120B...");
                             let history = conversation.read().await.clone();
-                            match groq.solve_coding_problem(&formatted, &history).await {
+                            let ctx: Vec<String> = candidate_context.read().await.iter().cloned().collect();
+                            match groq.solve_coding_problem(&formatted, &history, &ctx).await {
                                 Ok(answer) => {
                                     info!("✓ Debug solution received: {} chars", answer.len());
                                     conversation.write().await.push(ConversationMessage {
@@ -1254,7 +1258,8 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
                             
                             info!("Answering {} with GPT-OSS-120B...", problem_type);
                             let history = conversation.read().await.clone();
-                            match groq.solve_coding_problem(content, &history).await {
+                            let ctx: Vec<String> = candidate_context.read().await.iter().cloned().collect();
+                            match groq.solve_coding_problem(content, &history, &ctx).await {
                                 Ok(answer) => {
                                     conversation.write().await.push(ConversationMessage {
                                         role: "assistant".to_string(),
