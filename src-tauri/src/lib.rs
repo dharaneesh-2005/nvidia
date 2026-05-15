@@ -19,6 +19,7 @@ pub fn run() {
             pip::hide_pip_cursor,
             pip::show_pip_cursor,
             pip::set_pip_opacity,
+            pip::pip_content_ready,
         ])
         .setup(|app| {
             // Hide the main window on startup - we'll use the web server

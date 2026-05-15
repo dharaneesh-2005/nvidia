@@ -878,8 +878,18 @@
             // Wait for Tauri API to load, then init PiP mode
             if (window.__TAURI__) {
                 initPiPMode();
+                // Signal to Tauri that content is rendered, safe to show window
+                requestAnimationFrame(() => {
+                    window.__TAURI__.invoke('pip_content_ready').catch(() => {});
+                });
             } else {
-                setTimeout(initPiPMode, 500);
+                setTimeout(() => {
+                    initPiPMode();
+                    // Try signaling after Tauri loads
+                    if (window.__TAURI__) {
+                        window.__TAURI__.invoke('pip_content_ready').catch(() => {});
+                    }
+                }, 500);
             }
         }
         

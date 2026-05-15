@@ -221,7 +221,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             msg = socket.recv() => {
                 if let Some(Ok(axum::extract::ws::Message::Text(text))) = msg {
                     if text == "capture_screen" {
-                        tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                        tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "capture_mcq" {
                         tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
                     } else if text == "debug_code" {
@@ -257,11 +257,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     let tx_clone = state.tx.clone();
                                     let groq = state.groq.clone();
                                     let conversation = state.conversation.clone();
+                                    let candidate_ctx = state.candidate_context.clone();
                                     let buffer = state.message_buffer.clone();
                                     let connected = state.client_connections.clone();
                                     tokio::spawn(async move {
                                         let history = conversation.read().await.clone();
-                                        match groq.solve_coding_problem(&question, &history).await {
+                                        let ctx: Vec<String> = candidate_ctx.read().await.iter().cloned().collect();
+                                        match groq.solve_coding_problem(&question, &history, &ctx).await {
                                             Ok(solution) => {
                                                 conversation.write().await.push(ConversationMessage { role: "user".to_string(), content: question.clone() });
                                                 conversation.write().await.push(ConversationMessage { role: "assistant".to_string(), content: solution.clone() });

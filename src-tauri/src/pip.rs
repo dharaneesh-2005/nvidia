@@ -58,7 +58,8 @@ pub async fn open_pip_window(
     println!("[PiP] Creating PiP window at ({}, {}) with size {}x{}", 
         window_x, window_y, window_width, window_height);
 
-    // Create the PiP window with decorations for easy dragging
+    // Create the PiP window HIDDEN initially to prevent white flash
+    // The window will be shown after WebView2 finishes loading content
     let pip_window = WebviewWindowBuilder::new(
         &app,
         "pip",
@@ -71,12 +72,12 @@ pub async fn open_pip_window(
     .decorations(true)           // Enable title bar for easy dragging
     .resizable(true)
     .skip_taskbar(true)          // Hide from taskbar
-    .visible(true)
+    .visible(false)              // Start hidden - show after content loads
     .focused(false)              // Don't steal focus when created
     .build()
     .map_err(|e| format!("Failed to create PiP window: {}", e))?;
 
-    println!("[PiP] Window created with title bar for dragging");
+    println!("[PiP] Window created hidden, waiting for content to load...");
 
     // Apply screen capture exclusion
     #[cfg(target_os = "windows")]
@@ -102,6 +103,23 @@ pub async fn open_pip_window(
         }
     });
 
+    // Fallback: show the window after a delay if pip_content_ready wasn't called
+    // This handles cases where the page fails to load or Tauri invoke isn't available
+    let pip_window_clone = pip_window.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(800));
+        // Only show if still hidden (pip_content_ready may have already shown it)
+        if let Ok(visible) = pip_window_clone.is_visible() {
+            if !visible {
+                if let Err(e) = pip_window_clone.show() {
+                    println!("[PiP] Fallback show failed: {}", e);
+                } else {
+                    println!("[PiP] ✓ Window shown via fallback timer");
+                }
+            }
+        }
+    });
+
     println!("[PiP] ✓ PiP window created with screen capture exclusion");
     Ok("PiP window opened successfully".to_string())
 }
@@ -116,6 +134,16 @@ pub async fn close_pip_window(app: AppHandle) -> Result<String, String> {
     } else {
         Ok("PiP window not found".to_string())
     }
+}
+
+/// Called by pip.html when content is fully rendered and ready to display
+#[tauri::command]
+pub async fn pip_content_ready(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("pip") {
+        window.show().map_err(|e| format!("Failed to show PiP window: {}", e))?;
+        println!("[PiP] ✓ Content ready signal received, window shown");
+    }
+    Ok(())
 }
 
 /// Toggle the PiP window (close if open, create if closed)

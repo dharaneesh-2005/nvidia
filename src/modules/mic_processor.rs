@@ -1,15 +1,17 @@
 //! Microphone Audio Processor
 //!
 //! Captures candidate's speech using the SAME proven logic as audio_processor.rs.
-//! Key difference: supports long answers (up to 5 min) with 20-second streaming chunks.
-//! When candidate stops speaking, all chunks are combined and stored in context.
+//! Key difference: supports long answers with NON-BLOCKING 20-second streaming chunks.
+//! Transcription happens in background - audio processing never blocks.
+//! When candidate stops speaking, waits for all pending transcriptions then finalizes.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 use crossbeam_channel::{Receiver, RecvTimeoutError};
-use tokio::sync::{broadcast, RwLock};
+use tokio::sync::{broadcast, RwLock, Mutex};
+use tokio::task::JoinHandle;
 use hound::{WavSpec, WavWriter};
 use std::io::Cursor;
 use tracing::{info, error};
@@ -20,27 +22,30 @@ type CandidateContext = Arc<RwLock<VecDeque<String>>>;
 
 // Configuration constants
 const SAMPLE_RATE: u32 = 16000;
-const MIN_AUDIO_DURATION: Duration = Duration::from_millis(1500); // 1.5s min (avoid noise)
-const CHUNK_DURATION: Duration = Duration::from_secs(20); // Transcribe every 20 seconds
+const MIN_AUDIO_DURATION: Duration = Duration::from_millis(1500);
+const CHUNK_DURATION: Duration = Duration::from_secs(20);
 
-// Adaptive silence detection (same as interviewer)
-const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(1500); // Longer for candidate (they pause more)
-const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(2500); // Allow thinking pauses
+// Adaptive silence detection
+const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(1500);
+const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(2500);
 const NOISE_CALIBRATION_FRAMES: usize = 50;
 const RECALIBRATION_INTERVAL: Duration = Duration::from_secs(10);
 
-// Voice activity detection thresholds (same as interviewer)
+// Voice activity detection thresholds
 const NOISE_FLOOR_MULTIPLIER: f32 = 2.2;
 const MIN_SPEECH_FRAMES: usize = 6;
 const MIN_SPEECH_ENERGY: f32 = 0.008;
 const MAX_NOISE_FLOOR: f32 = 0.020;
 
-// Zero-crossing rate for voice detection
+// Zero-crossing rate
 const MIN_ZCR: f32 = 0.015;
 const MAX_ZCR: f32 = 0.40;
 
 // Context management
-const MAX_CONTEXT_CHARS: usize = 8000; // ~2000 tokens worth of context
+const MAX_CONTEXT_CHARS: usize = 8000;
+
+/// Shared queue for transcription results from background tasks
+type TranscriptionQueue = Arc<Mutex<Vec<String>>>;
 
 pub struct MicProcessor {
     audio_receiver: Receiver<Vec<f32>>,
@@ -50,11 +55,10 @@ pub struct MicProcessor {
     buffer: MessageBuffer,
     connected: Arc<AtomicUsize>,
     
-    // State (same as audio_processor.rs)
+    // State
     accumulated_audio: Vec<f32>,
     speech_start: Option<Instant>,
     silence_start: Option<Instant>,
-    is_processing: bool,
     consecutive_speech_frames: usize,
     consecutive_silence_frames: usize,
     
@@ -70,9 +74,9 @@ pub struct MicProcessor {
     avg_speech_energy: f32,
     speech_frame_count: usize,
     
-    // Streaming: accumulate transcription chunks for long answers
-    answer_chunks: Vec<String>,
-    last_chunk_time: Option<Instant>,
+    // NON-BLOCKING transcription: results collected here
+    transcription_queue: TranscriptionQueue,
+    pending_tasks: Vec<JoinHandle<()>>,
     
     // Logging
     chunk_count: usize,
@@ -87,7 +91,7 @@ impl MicProcessor {
         buffer: MessageBuffer,
         connected: Arc<AtomicUsize>,
     ) -> Self {
-        info!("[Candidate] MicProcessor initializing (same logic as interviewer)...");
+        info!("[Candidate] MicProcessor initializing (non-blocking transcription)...");
         Self {
             audio_receiver,
             groq_client,
@@ -98,7 +102,6 @@ impl MicProcessor {
             accumulated_audio: Vec::with_capacity(SAMPLE_RATE as usize * 30),
             speech_start: None,
             silence_start: None,
-            is_processing: false,
             consecutive_speech_frames: 0,
             consecutive_silence_frames: 0,
             noise_floor: 0.003,
@@ -109,13 +112,13 @@ impl MicProcessor {
             peak_energy: 0.0,
             avg_speech_energy: 0.0,
             speech_frame_count: 0,
-            answer_chunks: Vec::new(),
-            last_chunk_time: None,
+            transcription_queue: Arc::new(Mutex::new(Vec::new())),
+            pending_tasks: Vec::new(),
             chunk_count: 0,
         }
     }
 
-    /// Main run loop - SAME architecture as AudioProcessor::run()
+    /// Main run loop - NEVER blocks on transcription
     pub async fn run(&mut self) {
         info!("[Candidate] MicProcessor started. Calibrating noise floor...");
         
@@ -171,10 +174,6 @@ impl MicProcessor {
     }
 
     async fn process_chunk(&mut self, chunk: Vec<f32>, now: Instant) {
-        if self.is_processing {
-            return;
-        }
-        
         // Continuous recalibration when not speaking
         if self.speech_start.is_none() && self.should_recalibrate(now) {
             self.recalibrate_noise_floor(&chunk, now);
@@ -188,11 +187,9 @@ impl MicProcessor {
             self.energy_history.pop_front();
         }
         
-        // Dynamic threshold with SNR
         let dynamic_threshold = (self.noise_floor * NOISE_FLOOR_MULTIPLIER).max(MIN_SPEECH_ENERGY);
         let snr = if self.noise_floor > 0.0 { energy / self.noise_floor } else { 0.0 };
         
-        // Multi-factor voice detection
         let is_voice_like = energy > dynamic_threshold && 
                            zcr >= MIN_ZCR && zcr <= MAX_ZCR &&
                            snr >= 1.6;
@@ -241,22 +238,23 @@ impl MicProcessor {
                 if let Some(silence_start) = self.silence_start {
                     if now.duration_since(silence_start) >= silence_timeout {
                         let duration = self.accumulated_audio.len() as f32 / SAMPLE_RATE as f32;
-                        info!("[Candidate] Speech END | Duration: {:.2}s | Peak: {:.4} | Silence: {}ms", 
-                              duration, self.peak_energy, silence_timeout.as_millis());
-                        // Transcribe current chunk and finalize answer
-                        self.transcribe_current_chunk().await;
+                        info!("[Candidate] Speech END | Duration: {:.2}s | Peak: {:.4}", 
+                              duration, self.peak_energy);
+                        // Spawn transcription for remaining audio (non-blocking)
+                        self.spawn_transcription_task();
+                        // Wait for ALL pending transcriptions and finalize
                         self.finalize_answer().await;
                         self.reset_state();
                     }
                 }
             }
 
-            // 20-second streaming: transcribe chunk and continue
+            // 20-second streaming: spawn transcription in background, keep accumulating
             if let Some(start) = self.speech_start {
                 if now.duration_since(start) >= CHUNK_DURATION {
-                    info!("[Candidate] 20s chunk reached, transcribing partial...");
-                    self.transcribe_current_chunk().await;
-                    // Don't reset - keep listening for more speech
+                    info!("[Candidate] 20s chunk - spawning background transcription...");
+                    self.spawn_transcription_task();
+                    // Clear audio but DON'T block - keep listening
                     self.accumulated_audio.clear();
                     self.speech_start = Some(now);
                 }
@@ -272,9 +270,9 @@ impl MicProcessor {
         };
         
         if quality_ratio > 5.0 {
-            EXTENDED_SILENCE_TIMEOUT // High quality: allow longer pauses
+            EXTENDED_SILENCE_TIMEOUT
         } else {
-            BASE_SILENCE_TIMEOUT // Low quality: end quickly
+            BASE_SILENCE_TIMEOUT
         }
     }
 
@@ -290,9 +288,10 @@ impl MicProcessor {
             let silence_timeout = self.get_adaptive_silence_timeout();
             if now.duration_since(silence_start) >= silence_timeout {
                 if !self.accumulated_audio.is_empty() {
-                    self.transcribe_current_chunk().await;
+                    self.spawn_transcription_task();
                 }
-                if !self.answer_chunks.is_empty() {
+                // Check if we have any pending transcriptions to finalize
+                if !self.pending_tasks.is_empty() || !self.transcription_queue.lock().await.is_empty() {
                     self.finalize_answer().await;
                 }
                 self.reset_state();
@@ -300,71 +299,92 @@ impl MicProcessor {
         }
     }
 
-    /// Transcribe the current accumulated audio and add to answer_chunks queue
-    async fn transcribe_current_chunk(&mut self) {
-        let duration = self.accumulated_audio.len() as f32 / SAMPLE_RATE as f32;
+    /// Spawn a background transcription task - DOES NOT BLOCK the audio loop
+    fn spawn_transcription_task(&mut self) {
+        let audio = std::mem::take(&mut self.accumulated_audio);
+        self.accumulated_audio = Vec::with_capacity(SAMPLE_RATE as usize * 30);
         
+        let duration = audio.len() as f32 / SAMPLE_RATE as f32;
         if Duration::from_secs_f32(duration) < MIN_AUDIO_DURATION {
             return;
         }
         
-        let rms = self.calculate_rms(&self.accumulated_audio);
+        let rms = self.calculate_rms(&audio);
         let min_valid_energy = (self.noise_floor * 1.2).max(0.004);
-        
         if rms < min_valid_energy {
             return;
         }
         
-        info!("[Candidate] Transcribing chunk: {:.2}s, RMS: {:.4}", duration, rms);
-        self.is_processing = true;
+        info!("[Candidate] Spawning transcription task: {:.2}s, RMS: {:.4}", duration, rms);
         
-        let wav_data = self.samples_to_wav(&self.accumulated_audio);
+        let groq = self.groq_client.clone();
+        let queue = self.transcription_queue.clone();
+        let wav_data = self.samples_to_wav(&audio);
         
-        // Use empty prompt to avoid hallucinations
-        match self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await {
-            Ok(text) => {
-                let text = text.trim();
-                let lower = text.to_lowercase();
-                
-                if !self.is_hallucination(&lower) && !text.is_empty() && text.len() >= 5 {
-                    info!("[Candidate] Chunk transcribed: '{}'", 
-                          text.chars().take(60).collect::<String>());
-                    self.answer_chunks.push(text.to_string());
-                    self.last_chunk_time = Some(Instant::now());
-                } else if self.is_hallucination(&lower) {
-                    info!("[Candidate] Hallucination filtered: '{}'", text);
+        let handle = tokio::spawn(async move {
+            match groq.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await {
+                Ok(text) => {
+                    let text = text.trim().to_string();
+                    let lower = text.to_lowercase();
+                    
+                    if !is_hallucination(&lower) && !text.is_empty() && text.len() >= 5 {
+                        info!("[Candidate] Background transcription done: '{}'", 
+                              text.chars().take(60).collect::<String>());
+                        queue.lock().await.push(text);
+                    } else if is_hallucination(&lower) {
+                        info!("[Candidate] Hallucination filtered: '{}'", text);
+                    }
+                }
+                Err(e) => {
+                    error!("[Candidate] Background transcription error: {}", e);
                 }
             }
-            Err(e) => {
-                error!("[Candidate] Transcription error: {}", e);
-            }
-        }
+        });
         
-        self.is_processing = false;
+        self.pending_tasks.push(handle);
     }
 
-    /// Combine all queued chunks into one answer and store in context
+    /// Wait for ALL pending transcriptions, combine, and store in context
     async fn finalize_answer(&mut self) {
-        if self.answer_chunks.is_empty() {
+        if self.pending_tasks.is_empty() {
             return;
         }
         
-        let complete_answer = self.answer_chunks.join(" ");
-        self.answer_chunks.clear();
-        self.last_chunk_time = None;
+        let task_count = self.pending_tasks.len();
+        info!("[Candidate] Waiting for {} pending transcription(s)...", task_count);
+        
+        // Wait for all background tasks to complete
+        let tasks = std::mem::take(&mut self.pending_tasks);
+        for task in tasks {
+            let _ = task.await;
+        }
+        
+        // Collect all results from queue
+        let mut queue = self.transcription_queue.lock().await;
+        let chunks: Vec<String> = queue.drain(..).collect();
+        drop(queue);
+        
+        if chunks.is_empty() {
+            info!("[Candidate] No valid transcriptions after filtering");
+            return;
+        }
+        
+        let complete_answer = chunks.join(" ");
         
         if complete_answer.len() < 5 {
             return;
         }
         
-        info!("[Candidate] Answer finalized: '{}' ({} chars)", 
-              complete_answer.chars().take(80).collect::<String>(), complete_answer.len());
+        info!("[Candidate] Answer finalized ({} chunks): '{}' ({} chars)", 
+              chunks.len(),
+              complete_answer.chars().take(80).collect::<String>(), 
+              complete_answer.len());
         
         // Store in context with token-based management
         let mut context = self.candidate_context.write().await;
         context.push_back(complete_answer.clone());
         
-        // Token-based trimming: keep total under MAX_CONTEXT_CHARS
+        // Token-based trimming
         let mut total_chars: usize = context.iter().map(|s| s.len()).sum();
         while total_chars > MAX_CONTEXT_CHARS && context.len() > 1 {
             if let Some(removed) = context.pop_front() {
@@ -383,29 +403,6 @@ impl MicProcessor {
             "context_size": context_size,
             "token_estimate": token_estimate
         }).to_string()).await;
-    }
-
-    fn is_hallucination(&self, text: &str) -> bool {
-        let hallucinations = [
-            "thanks for watching", "thank you for watching", "thanks for listening",
-            "thank you", "thanks", "bye", "hmm", "hmmm", "okay", "ok",
-            "uh", "uhh", "um", "umm", "uh-huh", "yeah", "yep", "nope",
-            "huh", "mhmm", "mm-hmm", "amara.org", "subtitles by",
-            "copyright", "all rights reserved",
-        ];
-        
-        if text.len() < 20 && hallucinations.iter().any(|&h| text.contains(h)) {
-            return true;
-        }
-        
-        // Filter Whisper default prompt hallucination
-        if text.contains("technical interview question") || 
-           text.contains("programming, databases, algorithms") ||
-           text.contains("computer science") {
-            return true;
-        }
-        
-        false
     }
 
     fn reset_state(&mut self) {
@@ -428,12 +425,6 @@ impl MicProcessor {
             }
         }
         crossings as f32 / samples.len() as f32
-    }
-
-    fn get_recent_avg_energy(&self) -> Option<f32> {
-        if self.energy_history.is_empty() { return None; }
-        let sum: f32 = self.energy_history.iter().sum();
-        Some(sum / self.energy_history.len() as f32)
     }
 
     fn calculate_energy(&self, samples: &[f32]) -> f32 {
@@ -476,4 +467,28 @@ impl MicProcessor {
             }
         }
     }
+}
+
+/// Hallucination check (standalone function for use in spawned tasks)
+fn is_hallucination(text: &str) -> bool {
+    let hallucinations = [
+        "thanks for watching", "thank you for watching", "thanks for listening",
+        "thank you", "thanks", "bye", "hmm", "hmmm", "okay", "ok",
+        "uh", "uhh", "um", "umm", "uh-huh", "yeah", "yep", "nope",
+        "huh", "mhmm", "mm-hmm", "amara.org", "subtitles by",
+        "copyright", "all rights reserved",
+    ];
+    
+    if text.len() < 20 && hallucinations.iter().any(|&h| text.contains(h)) {
+        return true;
+    }
+    
+    // Filter Whisper default prompt hallucination
+    if text.contains("technical interview question") || 
+       text.contains("programming, databases, algorithms") ||
+       text.contains("computer science") {
+        return true;
+    }
+    
+    false
 }
