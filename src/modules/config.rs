@@ -4,6 +4,10 @@ use std::fs;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub groq_api_key: String,
+    #[serde(default)]
+    pub openrouter_api_key: String,
+    #[serde(default)]
+    pub gemini_api_key: String,
     pub server: ServerConfig,
     pub hotkey: String,
     pub project_path: String,
@@ -29,6 +33,10 @@ pub struct ModelsConfig {
     pub whisper: String,
     pub text: String,
     pub vision: String,
+    #[serde(default)]
+    pub ring: String,
+    #[serde(default)]
+    pub gemini: String,
 }
 
 impl Config {

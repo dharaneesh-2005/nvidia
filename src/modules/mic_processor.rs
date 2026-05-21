@@ -129,9 +129,6 @@ impl MicProcessor {
             match recv_result {
                 Ok(audio_chunk) => {
                     self.chunk_count += 1;
-                    if self.chunk_count % 500 == 0 {
-                        info!("[Candidate] {} audio chunks processed", self.chunk_count);
-                    }
                     
                     if !self.is_calibrated {
                         self.calibrate_noise_floor(&audio_chunk);

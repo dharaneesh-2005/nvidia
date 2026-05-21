@@ -460,6 +460,12 @@ impl GroqClient {
             .await
             .map_err(|e| e.to_string())?;
         
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(format!("Scout API error {}: {}", status, &body[..body.len().min(300)]));
+        }
+        
         let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
         let content = json["choices"][0]["message"]["content"]
             .as_str()
@@ -510,7 +516,7 @@ impl GroqClient {
             String::new()
         };
         
-        let system_prompt = format!("You are a technical interview expert specializing in DSA problems. Provide clear, structured, and detailed explanations.{}\n\n**PRIMARY USE CASE: DSA PROBLEMS (90%)**\nFor coding/algorithm questions, use this EXACT format:\n\n## PROBLEM UNDERSTANDING\n[Explain what the problem is asking in simple words - 2-3 sentences]\n\n## APPROACH 1: BRUTE FORCE\n\n**Intuition:**\n[Explain the straightforward approach in simple, conversational language - like explaining to a friend. Use 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain first step]\n- Step 2: [Explain second step]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// If predefined structure exists (class Solution), use it EXACTLY\n// Otherwise use: int main() {{ int t; cin >> t; while(t--) {{ }} }}\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n²) where n = size of input array\n- Space Complexity: O(1) where we use constant extra space\n\n---\n\n## APPROACH 2: OPTIMAL SOLUTION\n\n**Intuition:**\n[Explain the optimized approach in simple words. What's the key insight that makes it faster? 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain optimization step 1]\n- Step 2: [Explain optimization step 2]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// Optimized implementation\n// Use EXACT predefined structure if given\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n) where n = size of input array\n- Space Complexity: O(n) where n = space used for hash map\n\n---\n\n## COMPARISON\n[Compare both approaches - which is better and why? When to use which? 2-3 sentences]\n\n---\n\n**EDGE CASES (10%): System Design / General Questions**\nIf the question is NOT a DSA problem (system design, conceptual, etc.), provide a clear conversational answer with:\n- Simple explanation\n- Key points as bullet points\n- Examples if helpful\n\n---\n\n**CRITICAL RULES:**\n1. **Code Structure:**\n   - Use #include <bits/stdc++.h> and using namespace std;\n   - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n   - If predefined structure exists (class Solution {{ public: ... }}), use it EXACTLY\n   - If NO predefined structure, use: int main() {{ int t; cin >> t; while(t--) {{ }} return 0; }}\n   - NEVER mix class-based and main()-based approaches\n\n2. **Complexity Explanation:**\n   - ALWAYS explain what each variable in O() notation means\n   - Example: O(n*m) where n=rows, m=columns\n   - Use simple, clear language\n\n3. **Code Style:**\n   - Keep code SIMPLE and readable\n   - Use short variable names (n, m, i, j, x, y)\n   - Add brief comments for clarity\n   - Follow the predefined structure if given\n\n4. **Explanation Style:**\n   - Write like you're explaining to a friend\n   - Use conversational, simple language\n   - Break down complex ideas into steps\n   - Focus on WHY, not just WHAT\n\n5. **If candidate mentioned an approach:**\n   - PRIORITIZE their stated approach as the optimal solution\n   - Show it works correctly\n   - Only suggest alternatives if their approach is suboptimal", candidate_section);
+        let system_prompt = format!("You are a technical interview expert specializing in DSA problems. You have access to a CODE INTERPRETER tool.\n\n**TOOL USAGE:**\n- **code_interpreter** - Use this to:\n  - Run your solution against the provided test cases\n  - Verify correctness before presenting the answer\n  - Test edge cases (empty input, single element, large values)\n  - Confirm time complexity is acceptable\n\n**WORKFLOW:**\n1. Read the problem carefully\n2. Think of the optimal approach\n3. Write the solution\n4. USE code_interpreter to test it against the examples\n5. If it fails, fix and re-test\n6. Present the verified solution\n\nProvide clear, structured, and detailed explanations.{}\n\n**OUTPUT FORMAT FOR DSA PROBLEMS (90%):**\n\n## PROBLEM UNDERSTANDING\n[Explain what the problem is asking in simple words - 2-3 sentences]\n\n## APPROACH 1: BRUTE FORCE\n\n**Intuition:**\n[Explain the straightforward approach in simple, conversational language - like explaining to a friend. Use 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain first step]\n- Step 2: [Explain second step]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// If predefined structure exists (class Solution), use it EXACTLY\n// Otherwise use: int main() {{ int t; cin >> t; while(t--) {{ }} }}\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n²) where n = size of input array\n- Space Complexity: O(1) where we use constant extra space\n\n---\n\n## APPROACH 2: OPTIMAL SOLUTION\n\n**Intuition:**\n[Explain the optimized approach in simple words. What's the key insight that makes it faster? 3-4 sentences.]\n\n**How it works:**\n- Step 1: [Explain optimization step 1]\n- Step 2: [Explain optimization step 2]\n- Step 3: [Continue...]\n\n**Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// Optimized implementation\n// Use EXACT predefined structure if given\n```\n\n**Complexity Analysis:**\n- Time Complexity: O(n) where n = size of input array\n- Space Complexity: O(n) where n = space used for hash map\n\n---\n\n## COMPARISON\n[Compare both approaches - which is better and why? When to use which? 2-3 sentences]\n\n---\n\n**EDGE CASES (10%): System Design / General Questions**\nIf the question is NOT a DSA problem (system design, conceptual, etc.), provide a clear conversational answer with:\n- Simple explanation\n- Key points as bullet points\n- Examples if helpful\n\n---\n\n**CRITICAL RULES:**\n1. **Code Structure:**\n   - Use #include <bits/stdc++.h> and using namespace std;\n   - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n   - If predefined structure exists (class Solution {{ public: ... }}), use it EXACTLY\n   - If NO predefined structure, use: int main() {{ int t; cin >> t; while(t--) {{ }} return 0; }}\n   - NEVER mix class-based and main()-based approaches\n\n2. **Complexity Explanation:**\n   - ALWAYS explain what each variable in O() notation means\n   - Example: O(n*m) where n=rows, m=columns\n   - Use simple, clear language\n\n3. **Code Style:**\n   - Keep code SIMPLE and readable\n   - Use short variable names (n, m, i, j, x, y)\n   - Add brief comments for clarity\n   - Follow the predefined structure if given\n\n4. **Explanation Style:**\n   - Write like you're explaining to a friend\n   - Use conversational, simple language\n   - Break down complex ideas into steps\n   - Focus on WHY, not just WHAT\n\n5. **If candidate mentioned an approach:**\n   - PRIORITIZE their stated approach as the optimal solution\n   - Show it works correctly\n   - Only suggest alternatives if their approach is suboptimal\n\n6. **VERIFY WITH CODE INTERPRETER:**\n   - ALWAYS test your optimal solution against the provided examples\n   - If test fails, debug and fix before presenting", candidate_section);
         
         let mut messages = vec![json!({
             "role": "system",
@@ -529,17 +535,24 @@ impl GroqClient {
             "content": problem
         }));
         
+        // Use code_interpreter tool to verify solutions against test cases
         let payload = json!({
             "model": "openai/gpt-oss-120b",
             "messages": messages,
             "temperature": 0.4,
-            "max_tokens": 4000
+            "max_completion_tokens": 8192,
+            "top_p": 1,
+            "reasoning_effort": "medium",
+            "tools": [
+                { "type": "code_interpreter" }
+            ]
         });
         
         let mut retries = 0;
         loop {
+            // Increased timeout to 30s because web search + code interpreter takes longer
             match tokio::time::timeout(
-                std::time::Duration::from_secs(8),
+                std::time::Duration::from_secs(30),
                 self.client
                     .post("https://api.groq.com/openai/v1/chat/completions")
                     .header("Authorization", format!("Bearer {}", self.api_key))
@@ -568,12 +581,370 @@ impl GroqClient {
                 }
                 Ok(Err(e)) => return Err(format!("API request failed: {}", e)),
                 Err(_) if retries < 3 => {
-                    eprintln!("Request timed out after 8 seconds (attempt {})", retries + 1);
+                    eprintln!("Request timed out after 30 seconds (attempt {})", retries + 1);
                     retries += 1;
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
-                Err(_) => return Err("Request timed out after 8 seconds".to_string()),
+                Err(_) => return Err("Request timed out after 30 seconds".to_string()),
+            }
+        }
+    }
+    
+    /// Solve coding problem using Gemini 3.1 Flash via Google AI API
+    /// Uses code execution tool to verify solutions against test cases
+    pub async fn solve_with_gemini(&self, problem: &str, history: &[ConversationMessage], candidate_context: &[String], gemini_key: &str) -> Result<String, String> {
+        let candidate_section = if !candidate_context.is_empty() {
+            let recent: Vec<_> = candidate_context.iter().rev().take(5).collect();
+            format!(
+                "\nCANDIDATE HAS MENTIONED:\n{}\n",
+                recent.iter().rev()
+                    .enumerate()
+                    .map(|(i, a)| format!("{}. {}", i + 1, a))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            )
+        } else {
+            String::new()
+        };
+        
+        // Build conversation parts for Gemini format
+        let mut parts_text = format!(
+            "You are a world-class competitive programming expert with code execution capability.\n\
+            {}\n\
+            INSTRUCTIONS:\n\
+            1. Solve the problem below with the OPTIMAL approach\n\
+            2. Use code execution to VERIFY your solution against the provided test cases\n\
+            3. If verification fails, fix and re-verify\n\
+            4. Present the final verified solution\n\n\
+            OUTPUT FORMAT (use this EXACT structure):\n\n\
+            ## PROBLEM UNDERSTANDING\n\
+            [Explain what the problem is asking in simple words - 2-3 sentences]\n\n\
+            ## OPTIMAL SOLUTION\n\n\
+            **Intuition:**\n\
+            [Explain the optimal approach - what's the key insight? 3-5 sentences]\n\n\
+            **How it works:**\n\
+            - Step 1: [Explain step 1]\n\
+            - Step 2: [Explain step 2]\n\
+            - Step 3: [Continue...]\n\n\
+            **Code:**\n\
+            ```cpp\n\
+            #include <bits/stdc++.h>\n\
+            using namespace std;\n\
+            // Optimized implementation\n\
+            ```\n\n\
+            **Complexity Analysis:**\n\
+            - Time Complexity: O(...) where [explain variables]\n\
+            - Space Complexity: O(...) where [explain variables]\n\n\
+            CRITICAL RULES:\n\
+            - Use C++ ONLY with #include <bits/stdc++.h> and using namespace std;\n\
+            - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n\
+            - If predefined structure exists (class Solution), use it EXACTLY\n\
+            - If NO predefined structure, use: int main() {{ int t; cin >> t; while(t--) {{ }} return 0; }}\n\
+            - NEVER mix class-based and main()-based approaches\n\
+            - ALWAYS explain what each variable in O() notation means\n\
+            - If candidate mentioned an approach, PRIORITIZE it\n\
+            - Use code execution to verify your solution works on the examples\n\n\
+            PROBLEM:\n{}",
+            candidate_section, problem
+        );
+        
+        // Add recent history context
+        let recent: Vec<_> = history.iter().rev().take(6).rev().collect();
+        if !recent.is_empty() {
+            parts_text.push_str("\n\nRECENT CONTEXT:\n");
+            for msg in recent {
+                parts_text.push_str(&format!("{}: {}\n", msg.role, msg.content.chars().take(200).collect::<String>()));
+            }
+        }
+        
+        let payload = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": parts_text }]
+            }],
+            "generationConfig": {
+                "thinkingConfig": { "thinkingLevel": "HIGH" }
+            },
+            "tools": [
+                { "codeExecution": {} },
+                { "googleSearch": {} }
+            ]
+        });
+        
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={}",
+            gemini_key
+        );
+        
+        let mut retries = 0;
+        loop {
+            match self.client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                        
+                        // Gemini response format: candidates[0].content.parts[].text
+                        // Also handles: functionCall, executableCode, codeExecutionResult
+                        let mut result = String::new();
+                        if let Some(candidates) = json["candidates"].as_array() {
+                            if let Some(first) = candidates.first() {
+                                if let Some(parts) = first["content"]["parts"].as_array() {
+                                    for part in parts {
+                                        if let Some(text) = part["text"].as_str() {
+                                            result.push_str(text);
+                                        }
+                                        // Handle code execution results
+                                        if let Some(code_result) = part["codeExecutionResult"].as_object() {
+                                            if let Some(output) = code_result.get("output").and_then(|o| o.as_str()) {
+                                                if !output.is_empty() {
+                                                    result.push_str(&format!("\n\n**Code Execution Output:**\n```\n{}\n```\n", output));
+                                                }
+                                            }
+                                        }
+                                        // Handle executable code shown
+                                        if let Some(exec_code) = part["executableCode"].as_object() {
+                                            if let Some(code) = exec_code.get("code").and_then(|c| c.as_str()) {
+                                                if !code.is_empty() && result.is_empty() {
+                                                    result.push_str(&format!("```python\n{}\n```\n", code));
+                                                }
+                                            }
+                                        }
+                                        // Handle functionCall (code execution in progress)
+                                        if let Some(func_call) = part["functionCall"].as_object() {
+                                            if let Some(args) = func_call.get("args").and_then(|a| a.as_object()) {
+                                                if let Some(code) = args.get("code").and_then(|c| c.as_str()) {
+                                                    if result.is_empty() {
+                                                        // Model is still thinking via code - return the code as context
+                                                        result.push_str(&format!("**Gemini is solving via code execution...**\n\n```python\n{}\n```", code));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                // Check finish reason
+                                let finish_reason = first["finishReason"].as_str().unwrap_or("");
+                                if finish_reason == "STOP" && result.is_empty() {
+                                    // Model finished but with function call only - extract from functionCall
+                                    if let Some(parts) = first["content"]["parts"].as_array() {
+                                        for part in parts {
+                                            if let Some(func_call) = part["functionCall"].as_object() {
+                                                if let Some(args) = func_call.get("args").and_then(|a| a.as_object()) {
+                                                    if let Some(code) = args.get("code").and_then(|c| c.as_str()) {
+                                                        result = format!("**Gemini Code Solution:**\n\n```python\n{}\n```", code);
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if !result.is_empty() {
+                            return Ok(result);
+                        }
+                        
+                        // Check for error
+                        if let Some(err) = json["error"].as_object() {
+                            let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown");
+                            return Err(format!("Gemini error: {}", msg));
+                        }
+                        
+                        return Err(format!("Gemini empty response: {}", &json.to_string()[..json.to_string().len().min(300)]));
+                    } else if retries < 3 {
+                        retries += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    } else {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(format!("Gemini API error: {}", body));
+                    }
+                }
+                Err(e) if retries < 3 => {
+                    retries += 1;
+                    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    continue;
+                }
+                Err(e) => return Err(format!("Gemini request failed: {}", e)),
+            }
+        }
+    }
+    
+    /// Debug code error using Gemini 3.1 Flash with code execution verification
+    pub async fn debug_with_gemini(&self, image_base64: &str, history: &[ConversationMessage], gemini_key: &str) -> Result<String, String> {
+        let recent_history: Vec<_> = history.iter().rev().take(25).rev().collect();
+        
+        // Step 1: Scout extracts error info
+        let vision_prompt = "Extract ALL debugging information from this screenshot in JSON format:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"language\": \"C++/Python/Java\",\n  \"code\": \"extracted code only, ignore UI\",\n  \"predefined_code\": \"if present, extract the exact function signature\",\n  \"error_message\": \"exact error text\",\n  \"input_test_case\": \"if visible, extract the input that caused the error\",\n  \"expected_output\": \"if visible\",\n  \"actual_output\": \"if visible\",\n  \"confidence\": 0.90\n}\n\nIMPORTANT:\n- Extract ONLY the code, ignore buttons, menus, UI elements\n- Extract input/expected/actual output if visible\n- Return valid JSON only";
+        
+        let vision_payload = json!({
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{ "role": "user", "content": [
+                { "type": "text", "text": vision_prompt },
+                { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", image_base64) } }
+            ]}],
+            "temperature": 0.2,
+            "max_tokens": 2000
+        });
+        
+        let vision_response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&vision_payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let vision_json: serde_json::Value = vision_response.json().await.map_err(|e| e.to_string())?;
+        let error_raw = vision_json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+        
+        // Parse Scout output
+        let error_description = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&error_raw.trim().trim_start_matches("```json").trim_end_matches("```").trim()) {
+            let mut f = String::new();
+            if let Some(v) = parsed["error_category"].as_str() { f.push_str(&format!("ERROR TYPE: {}\n", v)); }
+            if let Some(v) = parsed["error_message"].as_str() { if !v.is_empty() { f.push_str(&format!("ERROR: {}\n", v)); } }
+            if let Some(v) = parsed["code"].as_str() { if !v.is_empty() { f.push_str(&format!("\nCODE:\n```\n{}\n```\n", v)); } }
+            if let Some(v) = parsed["input_test_case"].as_str() { if !v.is_empty() { f.push_str(&format!("INPUT: {}\n", v)); } }
+            if let Some(v) = parsed["expected_output"].as_str() { if !v.is_empty() { f.push_str(&format!("EXPECTED: {}\n", v)); } }
+            if let Some(v) = parsed["actual_output"].as_str() { if !v.is_empty() { f.push_str(&format!("ACTUAL: {}\n", v)); } }
+            if f.is_empty() { error_raw } else { f }
+        } else {
+            error_raw
+        };
+        
+        // Find previous code from history
+        let mut context = String::new();
+        let last_code = recent_history.iter().rev()
+            .find(|m| m.role == "assistant" && (m.content.contains("```") || m.content.contains("#include")))
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+        if !last_code.is_empty() {
+            context.push_str(&format!("\nPREVIOUSLY GENERATED CODE (make MINIMAL changes to THIS):\n{}\n", last_code));
+        }
+        
+        // Step 2: Gemini fixes the bug with code execution verification
+        let debug_text = format!(
+            "You are a C++ debugging expert with code execution capability.\n\n\
+            {}\n{}\n\n\
+            INSTRUCTIONS:\n\
+            1. Identify the bug\n\
+            2. Fix with MINIMAL changes only\n\
+            3. Use code execution to VERIFY the fix works against the test cases\n\
+            4. If verification fails, iterate until it passes\n\n\
+            RULES:\n\
+            - Do NOT rewrite the entire code\n\
+            - Do NOT change the algorithm\n\
+            - ONLY fix the specific bug\n\
+            - Mark changes with: // FIX: [what changed]\n\n\
+            FORMAT:\n\
+            ## BUG\n\
+            [1-2 sentences]\n\n\
+            ## FIX\n\
+            ```cpp\n\
+            // Full code with only bug fixed\n\
+            // Mark: // FIX: [explanation]\n\
+            ```\n\n\
+            ## CHANGED\n\
+            - [old] → [new] (why)",
+            error_description, context
+        );
+        
+        let payload = json!({
+            "contents": [{
+                "role": "user",
+                "parts": [{ "text": debug_text }]
+            }],
+            "generationConfig": {
+                "thinkingConfig": { "thinkingLevel": "HIGH" }
+            },
+            "tools": [
+                { "codeExecution": {} }
+            ]
+        });
+        
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={}",
+            gemini_key
+        );
+        
+        let mut retries = 0;
+        loop {
+            match self.client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                        
+                        let mut result = String::new();
+                        if let Some(candidates) = json["candidates"].as_array() {
+                            if let Some(first) = candidates.first() {
+                                if let Some(parts) = first["content"]["parts"].as_array() {
+                                    for part in parts {
+                                        if let Some(text) = part["text"].as_str() {
+                                            result.push_str(text);
+                                        }
+                                        if let Some(code_result) = part["codeExecutionResult"].as_object() {
+                                            if let Some(output) = code_result.get("output").and_then(|o| o.as_str()) {
+                                                if !output.is_empty() {
+                                                    result.push_str(&format!("\n**Verification:**\n```\n{}\n```\n", output));
+                                                }
+                                            }
+                                        }
+                                        if let Some(exec_code) = part["executableCode"].as_object() {
+                                            if let Some(code) = exec_code.get("code").and_then(|c| c.as_str()) {
+                                                if !code.is_empty() && result.is_empty() {
+                                                    result.push_str(&format!("```python\n{}\n```\n", code));
+                                                }
+                                            }
+                                        }
+                                        if let Some(func_call) = part["functionCall"].as_object() {
+                                            if let Some(args) = func_call.get("args").and_then(|a| a.as_object()) {
+                                                if let Some(code) = args.get("code").and_then(|c| c.as_str()) {
+                                                    if result.is_empty() {
+                                                        result.push_str(&format!("**Gemini Debug Solution:**\n\n```python\n{}\n```", code));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if !result.is_empty() {
+                            return Ok(result);
+                        }
+                        
+                        if let Some(err) = json["error"].as_object() {
+                            let msg = err.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown");
+                            return Err(format!("Gemini debug error: {}", msg));
+                        }
+                        
+                        return Err(format!("Gemini debug empty: {}", &json.to_string()[..json.to_string().len().min(300)]));
+                    } else if retries < 3 {
+                        retries += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    } else {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(format!("Gemini debug API error: {}", body));
+                    }
+                }
+                Err(e) if retries < 3 => { retries += 1; tokio::time::sleep(std::time::Duration::from_secs(3)).await; continue; }
+                Err(e) => return Err(e.to_string()),
             }
         }
     }
@@ -616,23 +987,87 @@ impl GroqClient {
             .map_err(|e| e.to_string())?;
         
         let vision_json: serde_json::Value = vision_response.json().await.map_err(|e| e.to_string())?;
-        let error_description = vision_json["choices"][0]["message"]["content"]
+        let error_description_raw = vision_json["choices"][0]["message"]["content"]
             .as_str()
             .unwrap_or("")
             .to_string();
         
+        // Parse Scout's structured output for better formatting
+        let error_description = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&error_description_raw.trim().trim_start_matches("```json").trim_end_matches("```").trim()) {
+            let mut formatted = String::new();
+            
+            if let Some(category) = parsed["error_category"].as_str() {
+                formatted.push_str(&format!("ERROR TYPE: {}\n", category));
+            }
+            if let Some(lang) = parsed["language"].as_str() {
+                formatted.push_str(&format!("LANGUAGE: {}\n", lang));
+            }
+            if let Some(error_msg) = parsed["error_message"].as_str() {
+                if !error_msg.is_empty() {
+                    formatted.push_str(&format!("\nERROR MESSAGE:\n{}\n", error_msg));
+                }
+            }
+            if let Some(code) = parsed["code"].as_str() {
+                if !code.is_empty() {
+                    formatted.push_str(&format!("\nCODE FROM SCREENSHOT:\n```\n{}\n```\n", code));
+                }
+            }
+            if let Some(predefined) = parsed["predefined_code"].as_str() {
+                if !predefined.is_empty() {
+                    formatted.push_str(&format!("\nPREDEFINED STRUCTURE (must use):\n{}\n", predefined));
+                }
+            }
+            if let Some(input) = parsed["input_test_case"].as_str() {
+                if !input.is_empty() {
+                    formatted.push_str(&format!("\nFAILING TEST CASE INPUT:\n{}\n", input));
+                }
+            }
+            if let Some(expected) = parsed["expected_output"].as_str() {
+                if !expected.is_empty() {
+                    formatted.push_str(&format!("EXPECTED OUTPUT: {}\n", expected));
+                }
+            }
+            if let Some(actual) = parsed["actual_output"].as_str() {
+                if !actual.is_empty() {
+                    formatted.push_str(&format!("ACTUAL OUTPUT: {}\n", actual));
+                }
+            }
+            
+            if formatted.is_empty() {
+                error_description_raw
+            } else {
+                formatted
+            }
+        } else {
+            error_description_raw
+        };
+        
         // Step 2: Use GPT-OSS-120B to provide fix
-        let system_prompt = "You are a technical interview C++ debugging expert. Provide precise fixes.";
+        let system_prompt = "You are a technical interview C++ debugging expert.\n\n\
+CRITICAL RULE: You MUST make ONLY MINIMAL changes to fix the error.\n\
+- Do NOT rewrite the entire code\n\
+- Do NOT change the algorithm or approach\n\
+- ONLY fix the specific bug/error shown in the screenshot\n\
+- Mark every change with a comment: // FIX: [what was changed]\n\
+- Keep ALL other code EXACTLY the same\n\
+- If the previous solution is in conversation history, use THAT code as the base\n\
+- If the screenshot shows code, use THAT as the base (it's what's currently in the editor)\n\
+- Output the FULL corrected code with minimal changes highlighted";
         
         let mut context = String::new();
         if !recent_history.is_empty() {
-            context.push_str("\n\nRecent conversation (last 20 messages):\n");
-            for msg in &recent_history {
-                context.push_str(&format!("{}: {}\n", msg.role, msg.content));
+            // Find the most recent assistant code response
+            let last_code = recent_history.iter().rev()
+                .find(|m| m.role == "assistant" && (m.content.contains("```") || m.content.contains("#include")))
+                .map(|m| m.content.as_str())
+                .unwrap_or("");
+            
+            if !last_code.is_empty() {
+                context.push_str(&format!("\n\nPREVIOUSLY GENERATED CODE (make MINIMAL changes to THIS):\n{}\n", last_code));
             }
         }
         
-        let debug_prompt = format!("Error analysis from screenshot:\n{}\n{}\n\nProvide debugging solution in this EXACT format:\n\n## WHY THE ERROR OCCURRED\n[Explain in simple words what caused this error - 2-3 sentences]\n\n## APPROACH 1: QUICK FIX (Minimal Changes)\n\n**What to change:**\n[Explain the small correction needed]\n\n**Corrected Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// CHANGED: [explain what changed] - OLD: [old code] -> NEW: [new code]\n// Rest of code remains same\n```\n\n**Complexity:**\n- Time: O(...) where [explain variables]\n- Space: O(...) where [explain variables]\n\n---\n\n## APPROACH 2: OPTIMAL FIX (Better Solution)\n\n**What to improve:**\n[Explain the better approach]\n\n**Optimized Code:**\n```cpp\n#include <bits/stdc++.h>\nusing namespace std;\n\n// Optimized implementation\n```\n\n**Complexity:**\n- Time: O(...) where [explain variables]\n- Space: O(...) where [explain variables]\n\n---\n\n## COMPARISON\n[Compare both fixes - when to use which]\n\n---\n\n**CRITICAL RULES:**\n1. **For Quick Fix:** Mark changes with comments like // CHANGED: [what changed]\n2. **Code Structure:**\n   - Use #include <bits/stdc++.h> and using namespace std;\n   - Do NOT use ios::sync_with_stdio(false), cin.tie(NULL), or fast I/O\n   - If predefined structure exists, use it EXACTLY\n   - Otherwise use: int main() {{ int t; cin >> t; while(t--) {{ }} }}\n3. **Explanation Style:**\n   - Explain WHY the error happened\n   - Show WHAT changed in the code\n   - Use simple, conversational language\n4. **Complexity:**\n   - ALWAYS explain what each variable means\n   - Example: O(n) where n = size of array", error_description, context);
+        let debug_prompt = format!("Error analysis from screenshot:\n{}\n{}\n\nFix this error with MINIMAL changes only.\n\nFormat:\n\n## BUG IDENTIFIED\n[1-2 sentences: what exactly is wrong]\n\n## MINIMAL FIX\n```cpp\n// Output the FULL code with ONLY the bug fixed\n// Mark changes with: // FIX: [explanation]\n// Keep everything else EXACTLY the same\n```\n\n## WHAT CHANGED\n- Line X: [old code] → [new code] (reason)\n\nRULES:\n- Do NOT change the algorithm\n- Do NOT rewrite the solution\n- ONLY fix the specific error\n- Keep the same variable names, structure, approach", error_description, context);
         
         let mut messages = vec![json!({
             "role": "system",
@@ -685,6 +1120,122 @@ impl GroqClient {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
+                Err(e) => return Err(e.to_string()),
+            }
+        }
+    }
+    
+    /// Debug code error using Ring 1T model via OpenRouter
+    /// Same Scout extraction, but Ring model for the fix
+    pub async fn debug_with_ring(&self, image_base64: &str, history: &[ConversationMessage], openrouter_key: &str) -> Result<String, String> {
+        let recent_history: Vec<_> = history.iter().rev().take(25).rev().collect();
+        
+        // Step 1: Scout extracts error info (same as debug_code_error)
+        let vision_prompt = "Extract ALL debugging information from this screenshot in JSON format:\n{\n  \"type\": \"DEBUG_ERROR\",\n  \"error_category\": \"COMPILATION/RUNTIME/TLE/WRONG_OUTPUT\",\n  \"language\": \"C++/Python/Java\",\n  \"code\": \"extracted code only, ignore UI\",\n  \"predefined_code\": \"if present, extract the exact function signature\",\n  \"error_message\": \"exact error text\",\n  \"input_test_case\": \"if visible, extract the input that caused the error\",\n  \"expected_output\": \"if visible\",\n  \"actual_output\": \"if visible\",\n  \"confidence\": 0.90\n}\n\nIMPORTANT:\n- Extract ONLY the code, ignore buttons, menus, UI elements\n- Extract input/expected/actual output if visible\n- Return valid JSON only";
+        
+        let vision_payload = json!({
+            "model": "meta-llama/llama-4-scout-17b-16e-instruct",
+            "messages": [{ "role": "user", "content": [
+                { "type": "text", "text": vision_prompt },
+                { "type": "image_url", "image_url": { "url": format!("data:image/png;base64,{}", image_base64) } }
+            ]}],
+            "temperature": 0.2,
+            "max_tokens": 2000
+        });
+        
+        let vision_response = self.client
+            .post("https://api.groq.com/openai/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&vision_payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        
+        let vision_json: serde_json::Value = vision_response.json().await.map_err(|e| e.to_string())?;
+        let error_raw = vision_json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+        
+        // Parse Scout output
+        let error_description = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&error_raw.trim().trim_start_matches("```json").trim_end_matches("```").trim()) {
+            let mut f = String::new();
+            if let Some(v) = parsed["error_category"].as_str() { f.push_str(&format!("ERROR TYPE: {}\n", v)); }
+            if let Some(v) = parsed["error_message"].as_str() { if !v.is_empty() { f.push_str(&format!("ERROR: {}\n", v)); } }
+            if let Some(v) = parsed["code"].as_str() { if !v.is_empty() { f.push_str(&format!("\nCODE:\n```\n{}\n```\n", v)); } }
+            if let Some(v) = parsed["input_test_case"].as_str() { if !v.is_empty() { f.push_str(&format!("INPUT: {}\n", v)); } }
+            if let Some(v) = parsed["expected_output"].as_str() { if !v.is_empty() { f.push_str(&format!("EXPECTED: {}\n", v)); } }
+            if let Some(v) = parsed["actual_output"].as_str() { if !v.is_empty() { f.push_str(&format!("ACTUAL: {}\n", v)); } }
+            if f.is_empty() { error_raw } else { f }
+        } else {
+            error_raw
+        };
+        
+        // Find previous code from history
+        let mut context = String::new();
+        if !recent_history.is_empty() {
+            let last_code = recent_history.iter().rev()
+                .find(|m| m.role == "assistant" && (m.content.contains("```") || m.content.contains("#include")))
+                .map(|m| m.content.as_str())
+                .unwrap_or("");
+            if !last_code.is_empty() {
+                context.push_str(&format!("\n\nPREVIOUSLY GENERATED CODE (make MINIMAL changes to THIS):\n{}\n", last_code));
+            }
+        }
+        
+        // Step 2: Ring model fixes the bug
+        let system_prompt = "You are a world-class C++ debugging expert.\n\n\
+CRITICAL: Make ONLY MINIMAL changes to fix the error.\n\
+- Do NOT rewrite the entire code\n\
+- Do NOT change the algorithm\n\
+- ONLY fix the specific bug\n\
+- Mark changes with: // FIX: [what changed]\n\
+- Output the FULL corrected code";
+        
+        let debug_prompt = format!("{}\n{}\n\nFix with MINIMAL changes.\n\n## BUG\n[1-2 sentences]\n\n## FIX\n```cpp\n// Full code with only bug fixed\n// Mark: // FIX: [explanation]\n```\n\n## CHANGED\n- [old] → [new] (why)", error_description, context);
+        
+        let mut messages = vec![json!({"role": "system", "content": system_prompt})];
+        for msg in recent_history.iter().rev().take(6).rev() {
+            messages.push(json!({"role": msg.role, "content": msg.content}));
+        }
+        messages.push(json!({"role": "user", "content": debug_prompt}));
+        
+        let payload = json!({
+            "model": "inclusionai/ring-2.6-1t:free",
+            "messages": messages,
+            "temperature": 0.3
+        });
+        
+        let mut retries = 0;
+        loop {
+            match self.client
+                .post("https://openrouter.ai/api/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", openrouter_key))
+                .header("Content-Type", "application/json")
+                .header("HTTP-Referer", "http://localhost:5000")
+                .json(&payload)
+                .send()
+                .await {
+                Ok(response) => {
+                    if response.status().is_success() {
+                        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                        let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("");
+                        if !content.is_empty() { return Ok(content.to_string()); }
+                        if let Some(r) = json["choices"][0]["message"]["reasoning"].as_str() {
+                            if !r.is_empty() { return Ok(r.to_string()); }
+                        }
+                        if let Some(r) = json["choices"][0]["message"]["reasoning_content"].as_str() {
+                            if !r.is_empty() { return Ok(r.to_string()); }
+                        }
+                        return Err(format!("Ring debug empty. Response: {}", &json.to_string()[..json.to_string().len().min(300)]));
+                    } else if retries < 3 {
+                        retries += 1;
+                        tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                        continue;
+                    } else {
+                        let body = response.text().await.unwrap_or_default();
+                        return Err(format!("Ring debug error: {}", body));
+                    }
+                }
+                Err(e) if retries < 3 => { retries += 1; tokio::time::sleep(std::time::Duration::from_secs(3)).await; continue; }
                 Err(e) => return Err(e.to_string()),
             }
         }

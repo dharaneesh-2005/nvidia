@@ -40,11 +40,14 @@ struct AppState {
     groq: Arc<GroqClient>,
     code_manager: Arc<CodeManager>,
     conversation: ConversationHistory,
-    candidate_context: CandidateContext, // NEW: Candidate's spoken responses
+    candidate_context: CandidateContext,
     message_buffer: MessageBuffer,
     client_connections: Arc<AtomicUsize>,
     search_hotkey: Arc<tokio::sync::Mutex<SearchHotkey>>,
     multi_capture_cancel: Arc<AtomicBool>,
+    ui_chunks: Arc<RwLock<Vec<String>>>,
+    openrouter_key: String,
+    gemini_key: String,
 }
 
 const SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
@@ -91,11 +94,14 @@ async fn main() {
         groq: groq.clone(),
         code_manager: code_manager.clone(),
         conversation: Arc::new(RwLock::new(Vec::new())),
-        candidate_context: Arc::new(RwLock::new(VecDeque::new())), // NEW: Candidate context
+        candidate_context: Arc::new(RwLock::new(VecDeque::new())),
         message_buffer: Arc::new(RwLock::new(VecDeque::new())),
         client_connections: Arc::new(AtomicUsize::new(0)),
         search_hotkey: search_hotkey,
         multi_capture_cancel: multi_capture_cancel.clone(),
+        ui_chunks: Arc::new(RwLock::new(Vec::new())),
+        openrouter_key: config.openrouter_api_key.clone(),
+        gemini_key: config.gemini_api_key.clone(),
     };
     
     // Start audio capture with proper streaming (interviewer questions)
@@ -114,6 +120,7 @@ async fn main() {
         state.message_buffer.clone(),
         state.client_connections.clone(),
         multi_capture_cancel.clone(),
+        state.ui_chunks.clone(),
     ));
     
     // Start debug hotkey listener
@@ -121,6 +128,12 @@ async fn main() {
     
     // Start MCQ hotkey listener
     tokio::spawn(start_mcq_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+    
+    // Start Gemini hotkey listener (Ctrl+Alt+A)
+    tokio::spawn(start_ring_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone(), config.gemini_api_key.clone(), state.ui_chunks.clone()));
+    
+    // Start Gemini Debug hotkey listener (Ctrl+Alt+F)
+    tokio::spawn(start_ring_debug_hotkey_listener(tx.clone(), groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone(), config.gemini_api_key.clone()));
     
     // Build web server
     let app = Router::new()
@@ -221,11 +234,81 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
             msg = socket.recv() => {
                 if let Some(Ok(axum::extract::ws::Message::Text(text))) = msg {
                     if text == "capture_screen" {
-                        tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                        // If there are UI chunks buffered, include them with this capture
+                        let mut chunks = state.ui_chunks.write().await;
+                        if !chunks.is_empty() {
+                            // Capture final screenshot and combine with buffered chunks
+                            match ScreenCapture::capture_now() {
+                                Ok(image_data) => {
+                                    chunks.push(image_data);
+                                    let all_images = std::mem::take(&mut *chunks);
+                                    drop(chunks);
+                                    let groq_c = state.groq.clone();
+                                    let tx_c = state.tx.clone();
+                                    let conv_c = state.conversation.clone();
+                                    let ctx_c = state.candidate_context.clone();
+                                    let buf_c = state.message_buffer.clone();
+                                    let conn_c = state.client_connections.clone();
+                                    // Update UI chunk count
+                                    let _ = state.tx.send(serde_json::json!({
+                                        "type": "multi_capture_update",
+                                        "count": 0
+                                    }).to_string());
+                                    tokio::spawn(async move {
+                                        process_screenshot(all_images, &groq_c, &tx_c, conv_c, ctx_c, buf_c, conn_c).await;
+                                    });
+                                }
+                                Err(e) => {
+                                    drop(chunks);
+                                    error!("Screen capture failed: {}", e);
+                                }
+                            }
+                        } else {
+                            drop(chunks);
+                            tokio::spawn(handle_screen_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                        }
+                    } else if text == "capture_chunk" {
+                        // Add a chunk to the buffer (same as Ctrl+Alt+C)
+                        match ScreenCapture::capture_now() {
+                            Ok(image_data) => {
+                                let mut chunks = state.ui_chunks.write().await;
+                                chunks.push(image_data);
+                                let count = chunks.len();
+                                drop(chunks);
+                                info!("[UI] Chunk captured via + button ({} total)", count);
+                                let _ = state.tx.send(serde_json::json!({
+                                    "type": "multi_capture_update",
+                                    "count": count
+                                }).to_string());
+                            }
+                            Err(e) => error!("Chunk capture failed: {}", e),
+                        }
                     } else if text == "capture_mcq" {
                         tokio::spawn(handle_mcq_capture(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "capture_ring" {
+                        // Capture screenshot and solve with Gemini model
+                        let groq_c = state.groq.clone();
+                        let tx_c = state.tx.clone();
+                        let conv_c = state.conversation.clone();
+                        let ctx_c = state.candidate_context.clone();
+                        let buf_c = state.message_buffer.clone();
+                        let conn_c = state.client_connections.clone();
+                        let gem_key = state.gemini_key.clone();
+                        tokio::spawn(async move {
+                            handle_ring_capture(tx_c, groq_c, conv_c, ctx_c, buf_c, conn_c, gem_key).await;
+                        });
                     } else if text == "debug_code" {
                         tokio::spawn(handle_debug_code(state.tx.clone(), state.groq.clone(), state.conversation.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+                    } else if text == "debug_ring" {
+                        let tx_c = state.tx.clone();
+                        let groq_c = state.groq.clone();
+                        let conv_c = state.conversation.clone();
+                        let buf_c = state.message_buffer.clone();
+                        let conn_c = state.client_connections.clone();
+                        let gem_key = state.gemini_key.clone();
+                        tokio::spawn(async move {
+                            handle_ring_debug(tx_c, groq_c, conv_c, buf_c, conn_c, gem_key).await;
+                        });
                     } else if text == "search_closed" {
                         let hotkey = state.search_hotkey.lock().await;
                         hotkey.deactivate();
@@ -554,6 +637,118 @@ async fn handle_debug_code(tx: broadcast::Sender<String>, groq: Arc<GroqClient>,
     }
 }
 
+/// Capture screenshot, analyze with Scout, solve with Gemini model
+async fn handle_ring_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, gemini_key: String) {
+    match ScreenCapture::capture_now() {
+        Ok(image_data) => {
+            handle_gemini_capture_multi(tx, groq, conversation, candidate_context, buffer, connected, gemini_key, vec![image_data]).await;
+        }
+        Err(e) => {
+            error!("[Gemini] Screen capture failed: {}", e);
+        }
+    }
+}
+
+/// Handle Gemini capture with multiple images (from chunks)
+async fn handle_gemini_capture_multi(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, gemini_key: String, images: Vec<String>) {
+    let image_count = images.len();
+    info!("[Gemini] Processing {} image(s) with Scout...", image_count);
+    
+    send_or_buffer(&tx, serde_json::json!({
+        "type": "transcription",
+        "text": format!("💎 Gemini: Analyzing {} screenshot(s)...", image_count)
+    }).to_string(), &buffer, &connected).await;
+    
+    let history = conversation.read().await.clone();
+    
+    // Scout analyzes all images together
+    let analysis_result = if image_count == 1 {
+        groq.analyze_image(&images[0], &history).await
+    } else {
+        info!("[Gemini] Sending {} images to Scout (total size: {} KB)...", image_count, 
+              images.iter().map(|i| i.len()).sum::<usize>() / 1024);
+        groq.analyze_images(&images, &history).await
+    };
+    
+    match analysis_result {
+        Ok((analysis, _is_coding)) => {
+            let cleaned = analysis.trim()
+                .trim_start_matches("```json")
+                .trim_end_matches("```")
+                .trim()
+                .to_string();
+            
+            // Format problem for Gemini
+            let problem_data = if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+                let mut formatted = String::new();
+                if let Some(predefined) = parsed["predefined_code"].as_str() {
+                    if !predefined.is_empty() {
+                        formatted.push_str(&format!("Predefined Code Structure (use EXACTLY):\n{}\n\n", predefined));
+                    }
+                }
+                formatted.push_str(&format!("Problem: {}\n\n", parsed["title"].as_str().unwrap_or("Problem")));
+                formatted.push_str(&format!("Description:\n{}\n\n", parsed["description"].as_str().unwrap_or("")));
+                if let Some(constraints) = parsed["constraints"].as_array() {
+                    formatted.push_str("Constraints:\n");
+                    for c in constraints {
+                        if let Some(s) = c.as_str() { formatted.push_str(&format!("- {}\n", s)); }
+                    }
+                }
+                if let Some(examples) = parsed["examples"].as_array() {
+                    formatted.push_str("\nExamples:\n");
+                    for (i, ex) in examples.iter().enumerate() {
+                        formatted.push_str(&format!("Example {}: Input: {} Output: {}\n", i+1, ex["input"].as_str().unwrap_or(""), ex["output"].as_str().unwrap_or("")));
+                    }
+                }
+                formatted
+            } else {
+                cleaned.clone()
+            };
+            
+            info!("[Gemini] Problem extracted, sending to Gemini...");
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "transcription",
+                "text": "💎 Gemini: Solving with code execution..."
+            }).to_string(), &buffer, &connected).await;
+            
+            let ctx: Vec<String> = candidate_context.read().await.iter().cloned().collect();
+            match groq.solve_with_gemini(&problem_data, &history, &ctx, &gemini_key).await {
+                Ok(solution) => {
+                    info!("[Gemini] ✓ Solution received: {} chars", solution.len());
+                    
+                    conversation.write().await.push(ConversationMessage {
+                        role: "user".to_string(),
+                        content: format!("[Gemini: Coding Problem]\n{}", problem_data),
+                    });
+                    conversation.write().await.push(ConversationMessage {
+                        role: "assistant".to_string(),
+                        content: solution.clone(),
+                    });
+                    
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": solution
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("[Gemini] Solution error: {}", e);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Gemini Error: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Err(e) => {
+            error!("[Gemini] Scout analysis failed: {}", e);
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "answer",
+                "text": format!("Screenshot analysis error: {}", e)
+            }).to_string(), &buffer, &connected).await;
+        }
+    }
+}
+
 async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
     match ScreenCapture::capture_now() {
         Ok(image_data) => {
@@ -565,17 +760,147 @@ async fn handle_mcq_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient>
     }
 }
 
-async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>) {
+/// Gemini hotkey listener (Ctrl+Alt+A)
+async fn start_ring_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, gemini_key: String, ui_chunks: Arc<RwLock<Vec<String>>>) {
+    use winapi::um::winuser::{GetAsyncKeyState, VK_CONTROL, VK_MENU};
+    
+    let mut was_pressed = false;
+    
+    loop {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL) } < 0;
+        let alt = unsafe { GetAsyncKeyState(VK_MENU) } < 0;
+        let a_key = unsafe { GetAsyncKeyState(0x41) } < 0;
+        
+        let is_pressed = ctrl && alt && a_key;
+        
+        if is_pressed && !was_pressed {
+            info!("[Gemini] Ctrl+Alt+A hotkey pressed!");
+            
+            // Capture current screenshot
+            let current_image = ScreenCapture::capture_now().ok();
+            
+            // Drain any buffered chunks
+            let mut chunks = ui_chunks.write().await;
+            let mut all_images: Vec<String> = std::mem::take(&mut *chunks);
+            drop(chunks);
+            
+            // Add current screenshot as the last image
+            if let Some(img) = current_image {
+                all_images.push(img);
+            }
+            
+            if all_images.is_empty() {
+                continue;
+            }
+            
+            // Reset UI chunk indicator
+            let _ = tx.send(serde_json::json!({
+                "type": "multi_capture_update",
+                "count": 0
+            }).to_string());
+            
+            let tx_c = tx.clone();
+            let groq_c = groq.clone();
+            let conv_c = conversation.clone();
+            let ctx_c = candidate_context.clone();
+            let buf_c = buffer.clone();
+            let conn_c = connected.clone();
+            let key_c = gemini_key.clone();
+            tokio::spawn(async move {
+                handle_gemini_capture_multi(tx_c, groq_c, conv_c, ctx_c, buf_c, conn_c, key_c, all_images).await;
+            });
+        }
+        
+        was_pressed = is_pressed;
+    }
+}
+
+/// Gemini Debug hotkey listener (Ctrl+Alt+F)
+async fn start_ring_debug_hotkey_listener(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>, gemini_key: String) {
+    use winapi::um::winuser::{GetAsyncKeyState, VK_CONTROL, VK_MENU};
+    
+    let mut was_pressed = false;
+    
+    loop {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        
+        let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL) } < 0;
+        let alt = unsafe { GetAsyncKeyState(VK_MENU) } < 0;
+        let f_key = unsafe { GetAsyncKeyState(0x46) } < 0;
+        
+        let is_pressed = ctrl && alt && f_key;
+        
+        if is_pressed && !was_pressed {
+            info!("[Gemini Debug] Ctrl+Alt+F hotkey pressed!");
+            let tx_c = tx.clone();
+            let groq_c = groq.clone();
+            let conv_c = conversation.clone();
+            let buf_c = buffer.clone();
+            let conn_c = connected.clone();
+            let key_c = gemini_key.clone();
+            tokio::spawn(async move {
+                handle_ring_debug(tx_c, groq_c, conv_c, buf_c, conn_c, key_c).await;
+            });
+        }
+        
+        was_pressed = is_pressed;
+    }
+}
+
+/// Handle Gemini debug capture
+async fn handle_ring_debug(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, conversation: ConversationHistory, buffer: MessageBuffer, connected: Arc<AtomicUsize>, gemini_key: String) {
+    match ScreenCapture::capture_now() {
+        Ok(image_data) => {
+            info!("[Gemini Debug] Screenshot captured, analyzing...");
+            send_or_buffer(&tx, serde_json::json!({
+                "type": "transcription",
+                "text": "💎 Gemini Debug: Analyzing error..."
+            }).to_string(), &buffer, &connected).await;
+            
+            let history = conversation.read().await.clone();
+            match groq.debug_with_gemini(&image_data, &history, &gemini_key).await {
+                Ok(fix) => {
+                    info!("[Gemini Debug] ✓ Fix received: {} chars", fix.len());
+                    conversation.write().await.push(ConversationMessage {
+                        role: "user".to_string(),
+                        content: "[Gemini Debug: Code Error]".to_string(),
+                    });
+                    conversation.write().await.push(ConversationMessage {
+                        role: "assistant".to_string(),
+                        content: fix.clone(),
+                    });
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": fix
+                    }).to_string(), &buffer, &connected).await;
+                }
+                Err(e) => {
+                    error!("[Gemini Debug] Error: {}", e);
+                    send_or_buffer(&tx, serde_json::json!({
+                        "type": "answer",
+                        "text": format!("Gemini Debug Error: {}", e)
+                    }).to_string(), &buffer, &connected).await;
+                }
+            }
+        }
+        Err(e) => error!("[Gemini Debug] Capture failed: {}", e),
+    }
+}
+
+async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<GroqClient>, hotkey: String, conversation: ConversationHistory, candidate_context: CandidateContext, buffer: MessageBuffer, connected: Arc<AtomicUsize>, multi_capture_cancel: Arc<AtomicBool>, ui_chunks: Arc<RwLock<Vec<String>>>) {
     let mut screen_capture = ScreenCapture::new(hotkey);
-    let mut multi_buffer: Vec<String> = Vec::new();
     
     loop {
         tokio::time::sleep(Duration::from_millis(100)).await;
         
         if multi_capture_cancel.swap(false, Ordering::SeqCst) {
-            if !multi_buffer.is_empty() {
-                multi_buffer.clear();
+            let mut chunks = ui_chunks.write().await;
+            if !chunks.is_empty() {
+                chunks.clear();
             }
+            drop(chunks);
             let _ = tx.send(serde_json::json!({
                 "type": "multi_capture_update",
                 "count": 0
@@ -584,17 +909,22 @@ async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<Gr
         }
         
         if let Some(image_data) = screen_capture.check_multi_capture() {
-            multi_buffer.push(image_data);
+            let mut chunks = ui_chunks.write().await;
+            chunks.push(image_data);
+            let count = chunks.len();
+            drop(chunks);
             let _ = tx.send(serde_json::json!({
                 "type": "multi_capture_update",
-                "count": multi_buffer.len()
+                "count": count
             }).to_string());
-            info!("Multi-capture chunk buffered ({}).", multi_buffer.len());
+            info!("Multi-capture chunk buffered ({}).", count);
         }
 
         if screen_capture.check_cancel() {
-            if !multi_buffer.is_empty() {
-                multi_buffer.clear();
+            let mut chunks = ui_chunks.write().await;
+            if !chunks.is_empty() {
+                chunks.clear();
+                drop(chunks);
                 let _ = tx.send(serde_json::json!({
                     "type": "multi_capture_update",
                     "count": 0
@@ -604,16 +934,37 @@ async fn start_screen_capture_hotkey(tx: broadcast::Sender<String>, groq: Arc<Gr
         }
         
         if let Some(image_data) = screen_capture.check_capture() {
-            if !multi_buffer.is_empty() {
-                multi_buffer.push(image_data);
-                let images = std::mem::take(&mut multi_buffer);
+            let mut chunks = ui_chunks.write().await;
+            if !chunks.is_empty() {
+                chunks.push(image_data);
+                let images = std::mem::take(&mut *chunks);
+                drop(chunks);
                 let _ = tx.send(serde_json::json!({
                     "type": "multi_capture_update",
                     "count": 0
                 }).to_string());
-                process_screenshot(images, &groq, &tx, conversation.clone(), candidate_context.clone(), buffer.clone(), connected.clone()).await;
+                // Spawn as background task - don't block the hotkey loop
+                let groq_c = groq.clone();
+                let tx_c = tx.clone();
+                let conv_c = conversation.clone();
+                let ctx_c = candidate_context.clone();
+                let buf_c = buffer.clone();
+                let conn_c = connected.clone();
+                tokio::spawn(async move {
+                    process_screenshot(images, &groq_c, &tx_c, conv_c, ctx_c, buf_c, conn_c).await;
+                });
             } else {
-                process_screenshot(vec![image_data], &groq, &tx, conversation.clone(), candidate_context.clone(), buffer.clone(), connected.clone()).await;
+                drop(chunks);
+                // Spawn as background task - don't block the hotkey loop
+                let groq_c = groq.clone();
+                let tx_c = tx.clone();
+                let conv_c = conversation.clone();
+                let ctx_c = candidate_context.clone();
+                let buf_c = buffer.clone();
+                let conn_c = connected.clone();
+                tokio::spawn(async move {
+                    process_screenshot(vec![image_data], &groq_c, &tx_c, conv_c, ctx_c, buf_c, conn_c).await;
+                });
             }
         }
     }
@@ -1049,24 +1400,12 @@ async fn process_screenshot(image_data_list: Vec<String>, groq: &GroqClient, tx:
             .await
             .map(|(analysis, _)| analysis)
     } else {
-        let mut analyses = Vec::new();
-        for image in &image_data_list {
-            match groq.analyze_image(image, &history).await {
-                Ok((analysis, _)) => analyses.push(analysis),
-                Err(e) => {
-                    error!("Screenshot analysis error: {}", e);
-                    send_or_buffer(tx, serde_json::json!({
-                        "type": "answer",
-                        "text": format!("Error analyzing screenshot: {}", e)
-                    }).to_string(), &buffer, &connected).await;
-                    return;
-                }
-            }
-        }
-        
-        let cleaned_list: Vec<String> = analyses.iter().map(|a| clean_analysis_text(a)).collect();
-        let merged = merge_cleaned_analyses(&cleaned_list);
-        Ok(merged.to_string())
+        // Send ALL images in one API call to Scout (supports up to 4 images)
+        // This gives much better OCR accuracy for multi-part DSA questions
+        info!("Sending {} images together to Scout for combined analysis...", capture_count);
+        groq.analyze_images(&image_data_list, &history)
+            .await
+            .map(|(analysis, _)| analysis)
     };
     
     match analysis_result {

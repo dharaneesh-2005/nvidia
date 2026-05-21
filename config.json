@@ -1,5 +1,7 @@
 {
   "groq_api_key": "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",
+  "openrouter_api_key": "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",
+  "gemini_api_key": "AIzaSyB6WCZ6HjBmgSOvbPm9knx7400KPsILqPA",
   "server": {
     "host": "0.0.0.0",
     "port": 5000
@@ -14,6 +16,8 @@
   "models": {
     "whisper": "whisper-large-v3",
     "text": "openai/gpt-oss-20b",
-    "vision": "meta-llama/llama-4-scout-17b-16e-instruct"
+    "vision": "meta-llama/llama-4-scout-17b-16e-instruct",
+    "ring": "inclusionai/ring-2.6-1t:free",
+    "gemini": "gemini-3.1-flash-lite"
   }
 }
