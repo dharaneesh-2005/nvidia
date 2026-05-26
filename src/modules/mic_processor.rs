@@ -42,7 +42,8 @@ const MIN_ZCR: f32 = 0.015;
 const MAX_ZCR: f32 = 0.40;
 
 // Context management
-const MAX_CONTEXT_CHARS: usize = 8000;
+const MAX_CONTEXT_CHARS: usize = 24000; // ~6000 tokens (model has 250k, but we keep it efficient)
+const SUMMARIZE_THRESHOLD: usize = 20000; // When to start summarizing old entries
 
 /// Shared queue for transcription results from background tasks
 type TranscriptionQueue = Arc<Mutex<Vec<String>>>;
@@ -319,22 +320,34 @@ impl MicProcessor {
         let wav_data = self.samples_to_wav(&audio);
         
         let handle = tokio::spawn(async move {
-            match groq.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await {
-                Ok(text) => {
-                    let text = text.trim().to_string();
-                    let lower = text.to_lowercase();
-                    
-                    if !is_hallucination(&lower) && !text.is_empty() && text.len() >= 5 {
-                        info!("[Candidate] Background transcription done: '{}'", 
-                              text.chars().take(60).collect::<String>());
-                        queue.lock().await.push(text);
-                    } else if is_hallucination(&lower) {
-                        info!("[Candidate] Hallucination filtered: '{}'", text);
+            // Try transcription with 1 retry on failure
+            let result = groq.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await;
+            
+            let text = match result {
+                Ok(t) => t,
+                Err(e) => {
+                    // Retry once after 1 second
+                    info!("[Candidate] Transcription failed, retrying in 1s: {}", e);
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                    match groq.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await {
+                        Ok(t) => t,
+                        Err(e2) => {
+                            error!("[Candidate] Transcription retry failed: {}", e2);
+                            return;
+                        }
                     }
                 }
-                Err(e) => {
-                    error!("[Candidate] Background transcription error: {}", e);
-                }
+            };
+            
+            let text = text.trim().to_string();
+            let lower = text.to_lowercase();
+            
+            if !is_hallucination(&lower) && !text.is_empty() && text.len() >= 5 {
+                info!("[Candidate] Background transcription done: '{}'", 
+                      text.chars().take(60).collect::<String>());
+                queue.lock().await.push(text);
+            } else if is_hallucination(&lower) {
+                info!("[Candidate] Hallucination filtered: '{}'", text);
             }
         });
         
@@ -377,15 +390,30 @@ impl MicProcessor {
               complete_answer.chars().take(80).collect::<String>(), 
               complete_answer.len());
         
-        // Store in context with token-based management
+        // Store in context with summarization-based management
         let mut context = self.candidate_context.write().await;
         context.push_back(complete_answer.clone());
         
-        // Token-based trimming
+        // Summarization-based trimming: compress old entries instead of dropping
         let mut total_chars: usize = context.iter().map(|s| s.len()).sum();
-        while total_chars > MAX_CONTEXT_CHARS && context.len() > 1 {
-            if let Some(removed) = context.pop_front() {
-                total_chars -= removed.len();
+        while total_chars > MAX_CONTEXT_CHARS && context.len() > 2 {
+            // Instead of dropping, summarize the oldest entry to first 100 chars
+            if let Some(old_entry) = context.pop_front() {
+                if old_entry.len() > 100 {
+                    // Compress to summary: first 100 chars + "[...]"
+                    let summary: String = old_entry.chars().take(100).collect();
+                    let compressed = format!("[Summary] {}...", summary);
+                    context.push_front(compressed.clone());
+                    total_chars = context.iter().map(|s| s.len()).sum();
+                    
+                    // If still over limit after compression, actually remove
+                    if total_chars > MAX_CONTEXT_CHARS {
+                        context.pop_front();
+                        total_chars = context.iter().map(|s| s.len()).sum();
+                    }
+                } else {
+                    total_chars -= old_entry.len();
+                }
             }
         }
         

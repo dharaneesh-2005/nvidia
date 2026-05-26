@@ -72,6 +72,15 @@ async fn send_or_buffer(tx: &broadcast::Sender<String>, msg: String, buffer: &Me
     }
 }
 
+/// Trim conversation history to max 30 messages (15 Q&A pairs)
+async fn trim_conversation(conversation: &ConversationHistory) {
+    let mut conv = conversation.write().await;
+    if conv.len() > 30 {
+        let drain_count = conv.len() - 30;
+        conv.drain(..drain_count);
+    }
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt::init();
@@ -724,6 +733,7 @@ async fn handle_gemini_capture_multi(tx: broadcast::Sender<String>, groq: Arc<Gr
                         role: "assistant".to_string(),
                         content: solution.clone(),
                     });
+                    trim_conversation(&conversation).await;
                     
                     send_or_buffer(&tx, serde_json::json!({
                         "type": "answer",
@@ -871,6 +881,7 @@ async fn handle_ring_debug(tx: broadcast::Sender<String>, groq: Arc<GroqClient>,
                         role: "assistant".to_string(),
                         content: fix.clone(),
                     });
+                    trim_conversation(&conversation).await;
                     send_or_buffer(&tx, serde_json::json!({
                         "type": "answer",
                         "text": fix

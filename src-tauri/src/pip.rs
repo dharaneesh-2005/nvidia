@@ -103,17 +103,44 @@ pub async fn open_pip_window(
         }
     });
 
-    // Fallback: show the window after a delay if pip_content_ready wasn't called
-    // This handles cases where the page fails to load or Tauri invoke isn't available
+    // Fallback: show the window after a delay WITHOUT stealing focus
     let pip_window_clone = pip_window.clone();
     std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(800));
-        // Only show if still hidden (pip_content_ready may have already shown it)
+        // Only show if still hidden
         if let Ok(visible) = pip_window_clone.is_visible() {
             if !visible {
-                if let Err(e) = pip_window_clone.show() {
-                    println!("[PiP] Fallback show failed: {}", e);
-                } else {
+                // Use Windows API ShowWindow with SW_SHOWNOACTIVATE to avoid focus steal
+                #[cfg(target_os = "windows")]
+                {
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        ShowWindow, SW_SHOWNOACTIVATE,
+                        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE,
+                        WS_EX_NOACTIVATE, GetWindow, GW_CHILD, GW_HWNDNEXT,
+                    };
+                    use windows::Win32::Foundation::HWND;
+                    
+                    if let Ok(hwnd) = pip_window_clone.hwnd() {
+                        let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+                        unsafe {
+                            let hwnd_win = HWND(hwnd_ptr);
+                            ShowWindow(hwnd_win, SW_SHOWNOACTIVATE);
+                            
+                            // Re-apply WS_EX_NOACTIVATE to child windows
+                            let mut child = GetWindow(hwnd_win, GW_CHILD);
+                            while let Ok(child_hwnd) = child {
+                                let style = GetWindowLongPtrW(child_hwnd, GWL_EXSTYLE);
+                                let new_style = style | (WS_EX_NOACTIVATE.0 as isize);
+                                SetWindowLongPtrW(child_hwnd, GWL_EXSTYLE, new_style);
+                                child = GetWindow(child_hwnd, GW_HWNDNEXT);
+                            }
+                        }
+                        println!("[PiP] ✓ Window shown + no-activate re-applied to children");
+                    }
+                }
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let _ = pip_window_clone.show();
                     println!("[PiP] ✓ Window shown via fallback timer");
                 }
             }
@@ -221,24 +248,35 @@ fn apply_capture_exclusion_windows(window: &tauri::WebviewWindow) -> Result<(), 
 #[cfg(target_os = "windows")]
 fn apply_no_activate_windows(window: &tauri::WebviewWindow) -> Result<(), String> {
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE,
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, 
+        WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+        GetWindow, GW_CHILD, GW_HWNDNEXT,
     };
+    use windows::Win32::Foundation::HWND;
 
     let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
     let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
 
     unsafe {
-        let hwnd_win = windows::Win32::Foundation::HWND(hwnd_ptr);
+        let hwnd_win = HWND(hwnd_ptr);
         
-        // Get current extended window styles
+        // Apply to main window
         let current_style = GetWindowLongPtrW(hwnd_win, GWL_EXSTYLE);
-        
-        // Add WS_EX_NOACTIVATE flag to prevent window from being activated when clicked
-        let new_style = current_style | (WS_EX_NOACTIVATE.0 as isize);
-        
+        let new_style = current_style 
+            | (WS_EX_NOACTIVATE.0 as isize)
+            | (WS_EX_TOOLWINDOW.0 as isize);
         SetWindowLongPtrW(hwnd_win, GWL_EXSTYLE, new_style);
         
-        println!("[PiP] ✓ WS_EX_NOACTIVATE applied - window won't steal focus");
+        // Also apply to ALL child windows using GetWindow traversal
+        let mut child = GetWindow(hwnd_win, GW_CHILD);
+        while let Ok(child_hwnd) = child {
+            let style = GetWindowLongPtrW(child_hwnd, GWL_EXSTYLE);
+            let child_new_style = style | (WS_EX_NOACTIVATE.0 as isize);
+            SetWindowLongPtrW(child_hwnd, GWL_EXSTYLE, child_new_style);
+            child = GetWindow(child_hwnd, GW_HWNDNEXT);
+        }
+        
+        println!("[PiP] ✓ WS_EX_NOACTIVATE + WS_EX_TOOLWINDOW applied to window + children");
         println!("[PiP] You can click on the PiP window without losing focus on your browser");
     }
     
