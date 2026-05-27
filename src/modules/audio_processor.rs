@@ -356,14 +356,20 @@ impl AudioProcessor {
                     info!("Sending to AI for answer...");
                     let history = self.conversation.read().await.clone();
                     
-                    // Get candidate context (last 10 messages)
-                    let candidate_ctx = self.candidate_context.read().await.clone();
-                    let candidate_context_vec: Vec<String> = candidate_ctx.into_iter().collect();
+                    // Get candidate context - use try_read to avoid blocking if mic is writing
+                    let candidate_context_vec: Vec<String> = match self.candidate_context.try_read() {
+                        Ok(ctx) => ctx.iter().cloned().collect(),
+                        Err(_) => {
+                            // Mic processor is writing - use empty context rather than wait
+                            info!("Candidate context locked, proceeding without it");
+                            Vec::new()
+                        }
+                    };
                     
-                    // Retry mechanism with 3-second timeout
+                    // Retry mechanism with 5-second timeout (larger context needs more time)
                     let mut attempt = 1;
-                    let max_attempts = 3;
-                    let timeout_duration = Duration::from_secs(3);
+                    let max_attempts = 2;
+                    let timeout_duration = Duration::from_secs(5);
                     
                     loop {
                         info!("Attempt {} of {} for AI response", attempt, max_attempts);

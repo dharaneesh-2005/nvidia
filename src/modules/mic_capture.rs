@@ -55,14 +55,40 @@ impl MicCapture {
         let host = cpal::default_host();
         
         println!("=== MICROPHONE CAPTURE MODE ===");
+        println!("[MIC] Available input devices:");
+        if let Ok(devices) = host.input_devices() {
+            for d in devices {
+                let name = d.name().unwrap_or("Unknown".to_string());
+                let configs = d.supported_input_configs().map(|c| c.count()).unwrap_or(0);
+                println!("   - '{}' ({} configs)", name, configs);
+            }
+        }
         println!("[MIC] Attempting to find input device...");
         
         // Use specific device if provided, otherwise use default
         let device = if let Some(ref name) = device_name {
-            println!("[MIC] Looking for device: {}", name);
-            host.input_devices()?
-                .find(|d| d.name().map(|n| n == *name).unwrap_or(false))
-                .ok_or_else(|| format!("Microphone '{}' not found", name))?
+            println!("[MIC] Looking for device: '{}'", name);
+            // Try exact match first
+            let found = host.input_devices()?
+                .find(|d| d.name().map(|n| n == *name).unwrap_or(false));
+            
+            if let Some(d) = found {
+                d
+            } else {
+                // Try partial match (device names can change slightly)
+                println!("[MIC] Exact match not found, trying partial match...");
+                let partial = host.input_devices()?
+                    .find(|d| d.name().map(|n| n.contains(name.as_str())).unwrap_or(false));
+                
+                if let Some(d) = partial {
+                    println!("[MIC] Found partial match: '{}'", d.name().unwrap_or("Unknown".to_string()));
+                    d
+                } else {
+                    println!("[MIC] ⚠ Device '{}' not found, falling back to default", name);
+                    host.default_input_device()
+                        .ok_or("No input device (microphone) found")?
+                }
+            }
         } else {
             println!("[MIC] Using default input device");
             host.default_input_device()
