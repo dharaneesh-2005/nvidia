@@ -304,136 +304,138 @@ impl AudioProcessor {
         let wav_data = self.samples_to_wav(&self.accumulated_audio);
         let start_time = Instant::now();
 
-        // Single API call to Whisper
-        match self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", None).await {
-            Ok(text) => {
-                let transcription_time = start_time.elapsed();
-                let text = text.trim();
-                
-                let lower_text = text.to_lowercase();
-                if self.is_hallucination(&lower_text) {
-                     info!("Discarding hallucination: '{}'", text);
-                     self.is_processing = false;
-                     return;
+        // Single API call to Whisper (Groq - always use Groq for transcription)
+        let transcription_result = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", None)
+        ).await;
+        
+        let text = match transcription_result {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                error!("Transcription failed: {}", e);
+                self.is_processing = false;
+                return;
+            }
+            Err(_) => {
+                error!("Transcription timed out after 10s");
+                self.is_processing = false;
+                return;
+            }
+        };
+        
+        let transcription_time = start_time.elapsed();
+        let text = text.trim();
+        
+        let lower_text = text.to_lowercase();
+        if self.is_hallucination(&lower_text) {
+            info!("Discarding hallucination: '{}'", text);
+            self.is_processing = false;
+            return;
+        }
+        
+        // Recalibrate noise floor
+        if let Some(recent_avg) = self.get_recent_avg_energy() {
+            if recent_avg < self.noise_floor * 0.5 || recent_avg > self.noise_floor * 3.0 {
+                self.noise_floor = recent_avg.clamp(0.001, MAX_NOISE_FLOOR);
+                info!("Noise floor adjusted: {:.5}", self.noise_floor);
+            }
+        }
+
+        if !text.is_empty() && text.len() >= 5 {
+            info!("Transcription ({:?}): {}", transcription_time, text);
+            
+            // 1. Notify UI of transcription
+            self.send_or_buffer(serde_json::json!({
+                "type": "transcription",
+                "text": text,
+                "metrics": {
+                    "processing_time_ms": transcription_time.as_millis()
                 }
-                
-                // Recalibrate noise floor after each question (adapt to changing environment)
-                if let Some(recent_avg) = self.get_recent_avg_energy() {
-                    if recent_avg < self.noise_floor * 0.5 || recent_avg > self.noise_floor * 3.0 {
-                        self.noise_floor = recent_avg.clamp(0.001, MAX_NOISE_FLOOR);
-                        info!("Noise floor adjusted: {:.5}", self.noise_floor);
-                    }
-                }
+            }).to_string()).await;
 
-                if !text.is_empty() && text.len() >= 5 {
-                    info!("Transcription ({:?}): {}", transcription_time, text);
-                    
-                    // 1. Notify UI of transcription
-                    self.send_or_buffer(serde_json::json!({
-                        "type": "transcription",
-                        "text": text,
-                        "metrics": {
-                            "processing_time_ms": transcription_time.as_millis()
-                        }
-                    }).to_string()).await;
-
-                    // 2. Add to history (keep bounded to last 30 messages = 15 Q&A pairs)
-                    {
-                        let mut conv = self.conversation.write().await;
-                        conv.push(ConversationMessage {
-                            role: "user".to_string(),
-                            content: text.to_string(),
-                        });
-                        // Trim to last 30 messages (15 questions + 15 answers)
-                        if conv.len() > 30 {
-                            let drain_count = conv.len() - 30;
-                            conv.drain(..drain_count);
-                            info!("Conversation history trimmed to 30 messages");
-                        }
-                    }
-
-                    // 3. Get Answer (Question Sending)
-                    info!("Sending to AI for answer...");
-                    let history = self.conversation.read().await.clone();
-                    
-                    // Get candidate context - use try_read to avoid blocking if mic is writing
-                    let candidate_context_vec: Vec<String> = match self.candidate_context.try_read() {
-                        Ok(ctx) => ctx.iter().cloned().collect(),
-                        Err(_) => {
-                            // Mic processor is writing - use empty context rather than wait
-                            info!("Candidate context locked, proceeding without it");
-                            Vec::new()
-                        }
-                    };
-                    
-                    // Retry mechanism with 5-second timeout (larger context needs more time)
-                    let mut attempt = 1;
-                    let max_attempts = 2;
-                    let timeout_duration = Duration::from_secs(5);
-                    
-                    loop {
-                        info!("Attempt {} of {} for AI response", attempt, max_attempts);
-                        
-                        let result = tokio::time::timeout(
-                            timeout_duration,
-                            self.groq_client.chat_with_context(text, &history, &candidate_context_vec)
-                        ).await;
-                        
-                        match result {
-                            Ok(Ok(answer)) => {
-                                let total_time = start_time.elapsed();
-                                info!("Answer received ({:?} total): {}", total_time, answer.chars().take(50).collect::<String>());
-                                
-                                self.conversation.write().await.push(ConversationMessage {
-                                    role: "assistant".to_string(),
-                                    content: answer.clone(),
-                                });
-                                
-                                self.send_or_buffer(serde_json::json!({
-                                    "type": "answer",
-                                    "text": answer,
-                                    "metrics": {
-                                        "total_time_ms": total_time.as_millis()
-                                    }
-                                }).to_string()).await;
-                                break;
-                            }
-                            Ok(Err(e)) => {
-                                error!("Chat error on attempt {}: {}", attempt, e);
-                                if attempt < max_attempts {
-                                    info!("Retrying after error...");
-                                    attempt += 1;
-                                    continue;
-                                }
-                                self.send_or_buffer(serde_json::json!({
-                                    "type": "answer",
-                                    "text": format!("Error: {}", e)
-                                }).to_string()).await;
-                                break;
-                            }
-                            Err(_) => {
-                                error!("Request timed out after {} seconds (attempt {})", timeout_duration.as_secs(), attempt);
-                                if attempt < max_attempts {
-                                    info!("Retrying after timeout...");
-                                    attempt += 1;
-                                    continue;
-                                }
-                                self.send_or_buffer(serde_json::json!({
-                                    "type": "answer",
-                                    "text": "Request timed out after 3 retries. Please try again."
-                                }).to_string()).await;
-                                break;
-                            }
-                        }
-                    }
+            // 2. Add to history (keep bounded to last 30 messages = 15 Q&A pairs)
+            {
+                let mut conv = self.conversation.write().await;
+                conv.push(ConversationMessage {
+                    role: "user".to_string(),
+                    content: text.to_string(),
+                });
+                if conv.len() > 30 {
+                    let drain_count = conv.len() - 30;
+                    conv.drain(..drain_count);
+                    info!("Conversation history trimmed to 30 messages");
                 }
             }
-            Err(e) => {
-                error!("Transcription failed: {}", e);
-                self.send_or_buffer(serde_json::json!({
-                    "type": "error",
-                    "message": format!("Transcription failed: {}", e)
-                }).to_string()).await;
+
+            // 3. Get Answer
+            info!("Sending to AI for answer...");
+            let history = self.conversation.read().await.clone();
+            
+            let candidate_context_vec: Vec<String> = match self.candidate_context.try_read() {
+                Ok(ctx) => ctx.iter().cloned().collect(),
+                Err(_) => {
+                    info!("Candidate context locked, proceeding without it");
+                    Vec::new()
+                }
+            };
+            
+            let mut attempt = 1;
+            let max_attempts = 2;
+            let timeout_duration = Duration::from_secs(5);
+            
+            loop {
+                info!("Attempt {} of {} for AI response", attempt, max_attempts);
+                
+                let result = tokio::time::timeout(
+                    timeout_duration,
+                    self.groq_client.chat_with_context(text, &history, &candidate_context_vec)
+                ).await;
+                
+                match result {
+                    Ok(Ok(answer)) => {
+                        let total_time = start_time.elapsed();
+                        info!("Answer received ({:?} total): {}", total_time, answer.chars().take(50).collect::<String>());
+                        
+                        self.conversation.write().await.push(ConversationMessage {
+                            role: "assistant".to_string(),
+                            content: answer.clone(),
+                        });
+                        
+                        self.send_or_buffer(serde_json::json!({
+                            "type": "answer",
+                            "text": answer,
+                            "metrics": {
+                                "total_time_ms": total_time.as_millis()
+                            }
+                        }).to_string()).await;
+                        break;
+                    }
+                    Ok(Err(e)) => {
+                        error!("Chat error on attempt {}: {}", attempt, e);
+                        if attempt < max_attempts {
+                            attempt += 1;
+                            continue;
+                        }
+                        self.send_or_buffer(serde_json::json!({
+                            "type": "answer",
+                            "text": format!("Error: {}", e)
+                        }).to_string()).await;
+                        break;
+                    }
+                    Err(_) => {
+                        error!("Request timed out after {}s (attempt {})", timeout_duration.as_secs(), attempt);
+                        if attempt < max_attempts {
+                            attempt += 1;
+                            continue;
+                        }
+                        self.send_or_buffer(serde_json::json!({
+                            "type": "answer",
+                            "text": "Request timed out. Please try again."
+                        }).to_string()).await;
+                        break;
+                    }
+                }
             }
         }
 

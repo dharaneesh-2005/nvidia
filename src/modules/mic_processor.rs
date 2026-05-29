@@ -249,22 +249,23 @@ impl MicProcessor {
         
         let wav_data = self.samples_to_wav(&self.accumulated_audio);
         
-        // Single API call with retry
-        let result = self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await;
+        // 10-second hard timeout - if Groq doesn't respond, skip this chunk
+        let result = tokio::time::timeout(
+            Duration::from_secs(10),
+            self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", Some(""))
+        ).await;
+        
         let text = match result {
-            Ok(t) => t,
-            Err(e) => {
-                // Retry once
-                info!("[Candidate] Transcription failed, retrying: {}", e);
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                match self.groq_client.transcribe_with_options(&wav_data, "whisper-large-v3", Some("")).await {
-                    Ok(t) => t,
-                    Err(e2) => {
-                        error!("[Candidate] Retry failed: {}", e2);
-                        self.is_processing = false;
-                        return;
-                    }
-                }
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                error!("[Candidate] Transcription failed: {}", e);
+                self.is_processing = false;
+                return;
+            }
+            Err(_) => {
+                error!("[Candidate] Transcription timed out after 10s, skipping");
+                self.is_processing = false;
+                return;
             }
         };
         

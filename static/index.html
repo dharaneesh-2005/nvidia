@@ -37,11 +37,9 @@
         }
         
         header {
-            background: rgba(40, 40, 40, 0.95);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-            border-bottom: 1px solid rgba(80, 80, 80, 0.3);
-            padding: 8px 12px;
+            background: rgba(30, 30, 30, 0.95);
+            border-bottom: 1px solid rgba(50, 50, 50, 0.5);
+            padding: 4px 8px;
             position: sticky;
             top: 0;
             z-index: 100;
@@ -186,9 +184,9 @@
         
         .header-top {
             display: flex;
-            justify-content: space-between;
+            justify-content: flex-end;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 4px;
         }
         
         h1 {
@@ -211,56 +209,37 @@
         
         .btn-group {
             display: flex;
-            gap: 6px;
+            gap: 4px;
+            align-items: center;
         }
         
         .btn {
-            background: rgba(60, 60, 60, 0.8);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(100, 100, 100, 0.4);
-            color: #e0e0e0;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 13px;
-            font-weight: 600;
+            background: rgba(50, 50, 50, 0.9);
+            border: 1px solid rgba(70, 70, 70, 0.6);
+            color: #aaa;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 500;
             cursor: pointer;
-            transition: all 0.2s;
-            flex: 1;
+            transition: all 0.15s;
             text-align: center;
+            white-space: nowrap;
         }
         
         .btn:active {
             transform: scale(0.95);
-            background: rgba(80, 80, 80, 0.9);
+            background: rgba(70, 70, 70, 0.9);
         }
         
-        .btn-debug {
-            background: rgba(231, 76, 60, 0.3);
-            border-color: rgba(231, 76, 60, 0.5);
+        .btn:hover {
+            background: rgba(70, 70, 70, 0.9);
+            color: #ddd;
         }
         
-        .btn-mic {
-            background: rgba(52, 152, 219, 0.3);
-            border-color: rgba(52, 152, 219, 0.5);
-            position: relative;
-        }
-        
-        .btn-mic.recording {
-            background: rgba(231, 76, 60, 0.5);
-            border-color: rgba(231, 76, 60, 0.7);
-            animation: pulse 1.5s infinite;
-        }
-
-        .btn-pip {
-            background: rgba(155, 89, 182, 0.3);
-            border-color: rgba(155, 89, 182, 0.5);
-            position: relative;
-        }
-
         .btn-pip.active {
-            background: rgba(155, 89, 182, 0.6);
-            border-color: rgba(155, 89, 182, 0.8);
-            box-shadow: 0 0 10px rgba(155, 89, 182, 0.4);
+            background: rgba(80, 80, 80, 0.9);
+            color: #fff;
         }
         
         @keyframes pulse {
@@ -268,50 +247,29 @@
             50% { opacity: 0.7; }
         }
         
-        .capture-btn-wrapper {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 2px;
-            flex: 1;
-        }
-        
         .btn-chunk {
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
-            border: 1px solid rgba(16, 163, 127, 0.5);
-            background: rgba(16, 163, 127, 0.3);
-            color: #10a37f;
-            font-size: 14px;
+            width: 18px;
+            height: 18px;
+            border-radius: 3px;
+            border: 1px solid rgba(70, 70, 70, 0.6);
+            background: rgba(50, 50, 50, 0.9);
+            color: #aaa;
+            font-size: 12px;
             font-weight: 700;
             line-height: 1;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 0.2s;
         }
         
         .btn-chunk:active {
             transform: scale(0.9);
-            background: rgba(16, 163, 127, 0.5);
         }
         
         .btn-chunk.has-chunks {
-            background: rgba(16, 163, 127, 0.6);
-            border-color: rgba(16, 163, 127, 0.8);
-            box-shadow: 0 0 6px rgba(16, 163, 127, 0.4);
-        }
-        
-        .btn-ring {
-            background: rgba(255, 165, 0, 0.3);
-            border-color: rgba(255, 165, 0, 0.5);
-        }
-        
-        .btn-ring-debug {
-            background: rgba(255, 100, 0, 0.3);
-            border-color: rgba(255, 100, 0, 0.5);
+            background: rgba(70, 70, 70, 0.9);
+            color: #fff;
         }
         
         .mic-selector {
@@ -829,24 +787,17 @@
     <div class="container">
         <header id="mainHeader">
             <div class="header-top">
-                <h1>🎯 Nvidia</h1>
                 <div class="status" id="status">●</div>
             </div>
             <div class="btn-group">
-                <select class="mic-selector" id="micSelector" onchange="changeMicrophone()">
-                    <option value="">🎤 Select Mic...</option>
-                </select>
-                <div class="capture-btn-wrapper">
-                    <button class="btn-chunk" id="chunkBtn" onclick="captureChunk()" title="Add chunk (Ctrl+Alt+C)">+</button>
-                    <button class="btn" onclick="captureScreen()">📸 Capture</button>
-                </div>
-                <button class="btn btn-ring" onclick="captureRing()" title="Gemini Solve (Ctrl+Alt+A)">💎 Gem</button>
-                <button class="btn" onclick="captureMcq()" style="background: rgba(52, 152, 219, 0.3); border-color: rgba(52, 152, 219, 0.5);" title="MCQ Capture (Ctrl+Alt+Q)">📝 MCQ</button>
-                <button class="btn btn-debug" onclick="debugCode()">🐛 Debug</button>
-                <button class="btn btn-ring-debug" onclick="debugRing()" title="Gemini Debug (Ctrl+Alt+F)">💎🐛</button>
-                <button class="btn btn-mic" id="micBtn" onclick="toggleMic()">🎤 Mic</button>
-                <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="Toggle PiP (Ctrl+Alt+P)">📺 PiP</button>
-                <button class="btn" onclick="clearHistory()" style="background: rgba(231, 76, 60, 0.3); border-color: rgba(231, 76, 60, 0.5);">🗑️ Clear</button>
+                <button class="btn-chunk" id="chunkBtn" onclick="captureChunk()" title="Add chunk (Ctrl+Alt+C)">+</button>
+                <button class="btn" onclick="captureScreen()" title="Capture (Ctrl+Shift+X)">Cap</button>
+                <button class="btn" onclick="captureRing()" title="Gemini Solve (Ctrl+Alt+A)">Gem</button>
+                <button class="btn" onclick="captureMcq()" title="MCQ (Ctrl+Alt+Q)">MCQ</button>
+                <button class="btn" onclick="debugCode()" title="Debug (Ctrl+Alt+D)">Dbg</button>
+                <button class="btn" onclick="debugRing()" title="Gemini Debug (Ctrl+Alt+F)">GDbg</button>
+                <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="PiP (Ctrl+Alt+P)">PiP</button>
+                <button class="btn" onclick="clearHistory()">Clr</button>
             </div>
             <!-- Candidate transcription indicator -->
             <div class="candidate-indicator" id="candidateIndicator">

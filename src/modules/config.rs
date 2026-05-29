@@ -5,6 +5,8 @@ use std::fs;
 pub struct Config {
     pub groq_api_key: String,
     #[serde(default)]
+    pub cerebras_api_key: String,
+    #[serde(default)]
     pub openrouter_api_key: String,
     #[serde(default)]
     pub gemini_api_key: String,

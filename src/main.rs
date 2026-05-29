@@ -90,7 +90,7 @@ async fn main() {
     let config = Config::load().expect("Failed to load config");
     let (tx, _rx) = broadcast::channel(100);
     
-    let groq = Arc::new(GroqClient::new(config.groq_api_key.clone()));
+    let groq = Arc::new(GroqClient::new_with_cerebras(config.groq_api_key.clone(), config.cerebras_api_key.clone()));
     let code_manager = Arc::new(CodeManager::new(config.project_path.clone()));
     
     // Start search hotkey listener

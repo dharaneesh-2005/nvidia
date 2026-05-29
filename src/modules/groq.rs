@@ -11,15 +11,21 @@ pub struct ConversationMessage {
 pub struct GroqClient {
     client: Client,
     api_key: String,
+    cerebras_key: String,
     user_profile: String,
 }
 
 impl GroqClient {
     pub fn new(api_key: String) -> Self {
+        Self::new_with_cerebras(api_key, String::new())
+    }
+    
+    pub fn new_with_cerebras(api_key: String, cerebras_key: String) -> Self {
         let user_profile = Self::load_profile();
         Self {
             client: Client::new(),
             api_key,
+            cerebras_key,
             user_profile,
         }
     }
@@ -186,16 +192,23 @@ impl GroqClient {
             "content": message
         }));
         
+        // Use Cerebras if available
+        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
+            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
+        } else {
+            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        };
+        
         let payload = json!({
-            "model": "openai/gpt-oss-20b",
+            "model": model_name,
             "messages": messages,
             "temperature": 0.5,
-            "max_tokens": 1500
+            "max_completion_tokens": 8192
         });
         
         let response = self.client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", key))
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
@@ -313,43 +326,39 @@ impl GroqClient {
         // Build system prompt: Profile (FULL) + Context Windows + Instructions
         let system_prompt = if !self.user_profile.is_empty() {
             format!(
-                "You are Dharaneesh, a CS student in a live technical interview. You are SPEAKING out loud — not writing an essay.\n\n\
+                "You are Dharaneesh, a final-year CS student from Tamil Nadu in a live technical interview.\n\n\
                 YOUR PROFILE:\n{}\n\
                 {}\
-                OUTPUT RULES (STRICT):\n\
-                - Write EXACTLY how a person speaks out loud in an interview\n\
-                - NO bullet points, NO numbered lists, NO headers, NO markdown\n\
-                - NO 'Firstly', 'Secondly', 'In conclusion', 'To summarize'\n\
-                - Just flowing sentences like you're talking to someone sitting across from you\n\
-                - Start answering directly — no filler like 'That's a great question'\n\
-                - Use natural pauses: 'So basically...', 'The thing is...', 'What happens here is...'\n\
-                - If the candidate already said something (listed above), continue from where they left off\n\
-                - Keep it under 60 seconds of speaking (roughly 150 words)\n\
-                - Sound confident but casual — like explaining to a friend over coffee\n\
-                - If it's about YOUR experience: use ONLY the profile above\n\
-                - If it's a concept: explain simply without referencing the profile\n\n\
-                EXAMPLE OF GOOD OUTPUT:\n\
-                \"So basically, I worked on this during my internship at LearnLogicify. What we did was build a REST API using Node and Express, and for the database we went with MongoDB because the data was pretty unstructured. The tricky part was handling concurrent requests, so I added Redis for caching the frequently accessed endpoints. That brought our response time down from about 800ms to under 200ms.\"\n\n\
-                EXAMPLE OF BAD OUTPUT (never do this):\n\
-                \"1. I worked on a REST API\\n2. Used Node.js and Express\\n3. MongoDB for database\\n4. Added Redis caching\\n\\nIn conclusion, this improved performance.\"\n\n\
-                Remember: You are SPEAKING, not writing a document.",
+                RULES:\n\
+                - Answer like an Indian engineering student speaking in simple English\n\
+                - Give the TECHNICAL answer directly. No analogies with fruits, food, or daily life unless asked\n\
+                - For concepts (like ACID, OOP, etc): define it simply, then give a short technical example\n\
+                - NO bullet points, NO lists, NO markdown — just natural spoken sentences\n\
+                - Keep answers SHORT: 3-5 sentences max. Only expand if interviewer asks 'explain more'\n\
+                - Use simple connectors: 'So basically', 'The thing is', 'What happens is', 'For example'\n\
+                - Do NOT mention your projects/profile UNLESS the interviewer specifically asks about YOUR experience\n\
+                - If interviewer asks 'explain with example': give a CODE or DATABASE example, not a real-world analogy\n\
+                - Sound like a confident student who knows the concept well\n\n\
+                GOOD EXAMPLE (ACID properties):\n\
+                \"So ACID stands for Atomicity, Consistency, Isolation, and Durability. Atomicity means either all operations in a transaction complete, or none of them do. Like if I'm transferring money from one account to another, both the debit and credit should happen together, otherwise it rolls back. Consistency means the database always moves from one valid state to another.\"\n\n\
+                BAD EXAMPLE (never do this):\n\
+                \"Think of ACID like making lemonade. Atomicity is like squeezing the whole lemon...\"\n\n\
+                Remember: Technical answers, simple English, no analogies unless asked.",
                 self.user_profile,
                 context_block
             )
         } else {
             format!(
-                "You are a CS student in a live technical interview. You are SPEAKING out loud — not writing.\n\
+                "You are a CS student in a live technical interview. Answer in simple Indian English.\n\
                 {}\
-                OUTPUT RULES (STRICT):\n\
-                - Write EXACTLY how a person speaks in an interview\n\
-                - NO bullet points, NO numbered lists, NO headers, NO markdown\n\
-                - Just flowing sentences like talking to someone face to face\n\
-                - Start answering directly — no filler\n\
-                - Use natural connectors: 'So basically...', 'The thing is...', 'What happens here is...'\n\
-                - If the candidate already said something, continue from there\n\
-                - Keep it under 60 seconds of speaking (~150 words)\n\
-                - Sound confident but casual\n\
-                - You are SPEAKING, not writing a document.",
+                RULES:\n\
+                - Give TECHNICAL answers directly, no food/daily-life analogies\n\
+                - For concepts: define simply, then give a technical example\n\
+                - NO bullet points, NO lists — just natural spoken sentences\n\
+                - 3-5 sentences max. Expand only if asked\n\
+                - Use: 'So basically', 'The thing is', 'What happens is'\n\
+                - Do NOT mention projects unless specifically asked about YOUR experience\n\
+                - Sound like a confident student who knows the concept",
                 context_block
             )
         };
@@ -375,16 +384,23 @@ impl GroqClient {
             "content": message
         }));
         
+        // Use Cerebras for voice answers (faster)
+        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
+            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
+        } else {
+            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        };
+        
         let payload = json!({
-            "model": "openai/gpt-oss-20b",
+            "model": model_name,
             "messages": messages,
             "temperature": 0.5,
-            "max_tokens": 1500
+            "max_completion_tokens": 8192
         });
         
         let response = self.client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", key))
             .header("Content-Type", "application/json")
             .json(&payload)
             .send()
@@ -531,27 +547,31 @@ impl GroqClient {
             "content": problem
         }));
         
+        // Use Cerebras for coding (faster)
+        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
+            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
+        } else {
+            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        };
+        
         // Use code_interpreter tool to verify solutions against test cases
         let payload = json!({
-            "model": "openai/gpt-oss-120b",
+            "model": model_name,
             "messages": messages,
             "temperature": 0.4,
             "max_completion_tokens": 8192,
             "top_p": 1,
-            "reasoning_effort": "medium",
-            "tools": [
-                { "type": "code_interpreter" }
-            ]
+            "reasoning_effort": "medium"
         });
         
         let mut retries = 0;
         loop {
-            // Increased timeout to 30s because web search + code interpreter takes longer
+            // Increased timeout to 30s because code interpreter takes longer
             match tokio::time::timeout(
                 std::time::Duration::from_secs(30),
                 self.client
-                    .post("https://api.groq.com/openai/v1/chat/completions")
-                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .post(&url)
+                    .header("Authorization", format!("Bearer {}", key))
                     .header("Content-Type", "application/json")
                     .json(&payload)
                     .send()
