@@ -184,9 +184,47 @@
         
         .header-top {
             display: flex;
-            justify-content: flex-end;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 4px;
+        }
+        
+        /* API key indicator (top-right) */
+        .api-key-indicator {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 10px;
+            background: rgba(0, 0, 0, 0.4);
+            border: 1px solid rgba(60, 60, 60, 0.5);
+        }
+        
+        .api-key-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #000;
+            border: 1px solid #333;
+            transition: all 0.3s ease;
+        }
+        
+        .api-key-dot.glow {
+            background: #fff;
+            border-color: #fff;
+            box-shadow: 0 0 8px #fff, 0 0 14px rgba(255,255,255,0.7);
+        }
+        
+        .api-key-name {
+            font-size: 10px;
+            font-weight: 600;
+            color: #888;
+            letter-spacing: 0.5px;
+            text-transform: lowercase;
+        }
+        
+        .api-key-name.active {
+            color: #fff;
         }
         
         h1 {
@@ -788,15 +826,20 @@
         <header id="mainHeader">
             <div class="header-top">
                 <div class="status" id="status">●</div>
+                <div class="api-key-indicator" id="apiKeyIndicator">
+                    <span class="api-key-dot" id="apiKeyDot"></span>
+                    <span class="api-key-name" id="apiKeyName">—</span>
+                </div>
             </div>
             <div class="btn-group">
-                <button class="btn-chunk" id="chunkBtn" onclick="captureChunk()" title="Add chunk (Ctrl+Alt+C)">+</button>
-                <button class="btn" onclick="captureScreen()" title="Capture (Ctrl+Shift+X)">Cap</button>
-                <button class="btn" onclick="captureRing()" title="Gemini Solve (Ctrl+Alt+A)">Gem</button>
-                <button class="btn" onclick="captureMcq()" title="MCQ (Ctrl+Alt+Q)">MCQ</button>
-                <button class="btn" onclick="debugCode()" title="Debug (Ctrl+Alt+D)">Dbg</button>
-                <button class="btn" onclick="debugRing()" title="Gemini Debug (Ctrl+Alt+F)">GDbg</button>
-                <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()" title="PiP (Ctrl+Alt+P)">PiP</button>
+                <button class="btn-chunk" id="chunkBtn" onclick="captureChunk()">+</button>
+                <button class="btn" onclick="captureScreen()">Cap</button>
+                <button class="btn" onclick="captureRing()">Gem</button>
+                <button class="btn" onclick="captureMcq()">MCQ</button>
+                <button class="btn" onclick="debugCode()">Dbg</button>
+                <button class="btn" onclick="debugRing()">GDbg</button>
+                <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()">PiP</button>
+                <button class="btn" id="lockBtn" onclick="toggleLock()">Lock</button>
                 <button class="btn" onclick="clearHistory()">Clr</button>
             </div>
             <!-- Candidate transcription indicator -->
@@ -1099,7 +1142,7 @@
             if (!indicator || !textEl || !contextEl) return;
             
             textEl.textContent = text;
-            contextEl.textContent = `Added to context (${contextSize}/10)`;
+            contextEl.textContent = `Added to context (${contextSize})`;
             
             indicator.classList.add('active');
             
@@ -1107,6 +1150,43 @@
             setTimeout(() => {
                 indicator.classList.remove('active');
             }, 5000);
+        }
+        
+        // Update API key indicator (glow effect when a key is used)
+        let apiKeyGlowTimeout = null;
+        function updateApiKeyIndicator(name) {
+            const dot = document.getElementById('apiKeyDot');
+            const nameEl = document.getElementById('apiKeyName');
+            if (!dot || !nameEl) return;
+            
+            nameEl.textContent = name;
+            nameEl.classList.add('active');
+            dot.classList.add('glow');
+            
+            // After 2.5s, fade the glow back to black (until next request)
+            if (apiKeyGlowTimeout) clearTimeout(apiKeyGlowTimeout);
+            apiKeyGlowTimeout = setTimeout(() => {
+                dot.classList.remove('glow');
+                nameEl.classList.remove('active');
+            }, 2500);
+        }
+        
+        // Show/hide recording indicator (Alt+Space toggle)
+        function updateRecordingIndicator(recording) {
+            const indicator = document.getElementById('candidateIndicator');
+            const textEl = document.getElementById('candidateText');
+            const contextEl = document.getElementById('candidateContext');
+            if (!indicator || !textEl || !contextEl) return;
+            
+            if (recording) {
+                textEl.textContent = '🔴 Recording your answer...';
+                contextEl.textContent = 'Press Ctrl+← to stop';
+                indicator.classList.add('active');
+            } else {
+                textEl.textContent = '⏳ Transcribing...';
+                contextEl.textContent = '';
+                indicator.classList.add('active');
+            }
         }
         
         // Save chat history whenever it changes
@@ -1268,6 +1348,11 @@
             if (data.type === 'candidate_transcription') {
                 // Show candidate transcription in indicator
                 showCandidateTranscription(data.text, data.context_size);
+            } else if (data.type === 'active_api_key') {
+                updateApiKeyIndicator(data.name);
+            } else if (data.type === 'mic_recording') {
+                // Show/hide recording indicator
+                updateRecordingIndicator(data.recording);
             } else if (data.type === 'multi_capture_update') {
                 const count = Number.isFinite(data.count) ? data.count : parseInt(data.count || 0, 10);
                 updateMultiCaptureIndicator(Number.isFinite(count) ? count : 0);
@@ -1470,10 +1555,27 @@
             // Update button state
             if (isPiPOpen) {
                 pipBtn.classList.add('active');
-                pipBtn.textContent = '📺 Close PiP';
+                pipBtn.textContent = 'PiP*';
             } else {
                 pipBtn.classList.remove('active');
-                pipBtn.textContent = '📺 PiP';
+                pipBtn.textContent = 'PiP';
+            }
+        }
+        
+        // Toggle window resize lock (Tauri PiP window)
+        let isLocked = false;
+        async function toggleLock() {
+            const lockBtn = document.getElementById('lockBtn');
+            isLocked = !isLocked;
+            
+            // Send via WebSocket - backend broadcasts to Tauri PiP window
+            sendMessage(JSON.stringify({ type: 'set_pip_resizable', resizable: !isLocked }));
+            
+            lockBtn.textContent = isLocked ? 'Unlock' : 'Lock';
+            if (isLocked) {
+                lockBtn.classList.add('active');
+            } else {
+                lockBtn.classList.remove('active');
             }
         }
 

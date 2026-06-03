@@ -1,6 +1,9 @@
 use reqwest::Client;
 use serde_json::json;
 use std::fs;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio::sync::broadcast;
 
 #[derive(Clone, Debug)]
 pub struct ConversationMessage {
@@ -8,26 +11,95 @@ pub struct ConversationMessage {
     pub content: String,
 }
 
+/// A named Cerebras API key
+#[derive(Clone, Debug)]
+pub struct NamedKey {
+    pub name: String,
+    pub key: String,
+}
+
 pub struct GroqClient {
     client: Client,
     api_key: String,
-    cerebras_key: String,
+    cerebras_keys: Vec<NamedKey>,
+    cerebras_counter: Arc<AtomicUsize>,
     user_profile: String,
+    // Broadcast channel to notify UI which key is active
+    tx: Option<broadcast::Sender<String>>,
 }
 
 impl GroqClient {
     pub fn new(api_key: String) -> Self {
-        Self::new_with_cerebras(api_key, String::new())
+        Self::new_with_cerebras(api_key, Vec::new())
     }
     
-    pub fn new_with_cerebras(api_key: String, cerebras_key: String) -> Self {
+    pub fn new_with_cerebras(api_key: String, cerebras_keys: Vec<NamedKey>) -> Self {
         let user_profile = Self::load_profile();
+        // Filter out empty keys
+        let keys: Vec<NamedKey> = cerebras_keys.into_iter().filter(|k| !k.key.is_empty()).collect();
+        if !keys.is_empty() {
+            let names: Vec<&str> = keys.iter().map(|k| k.name.as_str()).collect();
+            eprintln!("[Cerebras] {} key(s) loaded: {:?}, rotating every 3 requests", keys.len(), names);
+        } else {
+            eprintln!("[Cerebras] No keys - using Groq for all text/code");
+        }
         Self {
             client: Client::new(),
             api_key,
-            cerebras_key,
+            cerebras_keys: keys,
+            cerebras_counter: Arc::new(AtomicUsize::new(0)),
             user_profile,
+            tx: None,
         }
+    }
+    
+    /// Attach a broadcast sender so the client can notify UI of active key
+    pub fn set_broadcast(&mut self, tx: broadcast::Sender<String>) {
+        self.tx = Some(tx);
+    }
+    
+    /// Returns the next Cerebras (name, key) rotating every 2 requests, or None to use Groq
+    fn get_cerebras_key(&self) -> Option<(String, String)> {
+        if self.cerebras_keys.is_empty() {
+            return None;
+        }
+        let count = self.cerebras_counter.fetch_add(1, Ordering::SeqCst);
+        let index = (count / 2) % self.cerebras_keys.len();
+        let named = &self.cerebras_keys[index];
+        
+        // Broadcast the active key name to UI
+        if let Some(ref tx) = self.tx {
+            let _ = tx.send(serde_json::json!({
+                "type": "active_api_key",
+                "name": named.name
+            }).to_string());
+        }
+        
+        Some((named.name.clone(), named.key.clone()))
+    }
+    
+    /// Get a SPECIFIC key by index (for retry after 429)
+    fn get_cerebras_key_at(&self, index: usize) -> Option<(String, String)> {
+        if self.cerebras_keys.is_empty() {
+            return None;
+        }
+        let idx = index % self.cerebras_keys.len();
+        let named = &self.cerebras_keys[idx];
+        
+        if let Some(ref tx) = self.tx {
+            let _ = tx.send(serde_json::json!({
+                "type": "active_api_key",
+                "name": named.name
+            }).to_string());
+        }
+        
+        Some((named.name.clone(), named.key.clone()))
+    }
+    
+    /// Get current rotation index (for retry logic)
+    fn current_key_index(&self) -> usize {
+        let count = self.cerebras_counter.load(Ordering::SeqCst);
+        if self.cerebras_keys.is_empty() { 0 } else { (count / 2) % self.cerebras_keys.len() }
     }
     
     fn load_profile() -> String {
@@ -138,39 +210,43 @@ impl GroqClient {
         
         let system_prompt = if !self.user_profile.is_empty() {
             format!(
-                "You are helping a CS student named Dharaneesh answer questions in a technical interview. \
-                Speak AS him, using his real background below.\n\n\
+                "You are answering interview questions FOR a CS student named Dharaneesh. \
+                He will READ your answer ALOUD word-for-word. Write EXACTLY how he should speak it.\n\n\
                 PROFILE:\n{}\n\n\
-                HOW TO ANSWER:\n\
-                - Start with one clear sentence that directly answers the question\n\
-                - Then explain in 3-5 natural sentences — like talking to someone face to face\n\
-                - Use simple words. If you must use a technical term, explain it in the same breath\n\
-                - Give one small real-world example if it makes it clearer\n\
-                - Stop there. Do not summarize. Do not repeat.\n\n\
-                VOICE STYLE:\n\
-                - Speak like a confident final-year engineering student from Tamil Nadu\n\
-                - Natural connectors: 'So basically', 'The thing is', 'What happens here is', 'In simple terms'\n\
-                - Avoid: 'Furthermore', 'Moreover', 'It is worth noting', 'In conclusion'\n\
-                - If asked about YOUR experience or projects: use ONLY what is in the profile above\n\
-                - If it is a concept question: just explain the concept simply, no need to tie it to the profile\n\n\
-                LENGTH RULE: Your answer must be speakable in under 100 seconds. \
-                If it takes longer, you have said too much.",
+                === HOW TO WRITE ===\n\
+                FORMAT (Markdown for easy scanning):\n\
+                - Start with a ONE-LINE direct answer in **bold**\n\
+                - Break explanation into short bullet points or short paragraphs\n\
+                - **Bold** the key terms so they stand out while speaking\n\
+                - For code/DSA: approach in points, then a clean code block\n\n\
+                LANGUAGE:\n\
+                - SIMPLE everyday English. NO complex or fancy words.\n\
+                - Every line directly speakable — no rewording needed\n\
+                - Short sentences, one idea per line\n\n\
+                LENGTH:\n\
+                - Simple question: 2-4 points\n\
+                - Technical/problem-solving: as long as needed, fully structured\n\
+                - Behavioral: structured story in simple words\n\
+                - Complete and clear beats short and vague\n\n\
+                CONTENT:\n\
+                - Real technical answers, no food/daily-life analogies unless asked\n\
+                - For 'explain with example': give a code/technical example\n\
+                - Only mention projects if asked about YOUR experience",
                 self.user_profile
             )
         } else {
-            "You are helping a CS student answer questions in a technical interview.\n\n\
-            HOW TO ANSWER:\n\
-            - Start with one clear sentence that directly answers the question\n\
-            - Then explain in 3-5 natural sentences — like talking to someone face to face\n\
-            - Use simple words. If you must use a technical term, explain it in the same breath\n\
-            - Give one small real-world example if it makes it clearer\n\
-            - Stop there. Do not summarize. Do not repeat.\n\n\
-            VOICE STYLE:\n\
-            - Speak like a confident final-year engineering student from Tamil Nadu\n\
-            - Natural connectors: 'So basically', 'The thing is', 'What happens here is', 'In simple terms'\n\
-            - Avoid: 'Furthermore', 'Moreover', 'It is worth noting', 'In conclusion'\n\n\
-            LENGTH RULE: Your answer must be speakable in under 100 seconds. \
-            If it takes longer, you have said too much.".to_string()
+            "You are answering interview questions for a CS student who READS the answer ALOUD.\n\n\
+            === HOW TO WRITE ===\n\
+            - Start with a ONE-LINE direct answer in **bold**\n\
+            - Break explanation into short bullet points\n\
+            - **Bold** key terms\n\
+            - For code/DSA: approach in points, then code block\n\n\
+            LANGUAGE:\n\
+            - SIMPLE everyday English, NO complex words\n\
+            - Every line directly speakable\n\
+            - Short sentences, one idea per line\n\n\
+            LENGTH: short for simple questions, fully structured for technical ones. Complete over vague.\n\
+            CONTENT: real technical answers, no analogies unless asked.".to_string()
         };
         
         let mut messages = vec![json!({
@@ -192,11 +268,13 @@ impl GroqClient {
             "content": message
         }));
         
-        // Use Cerebras if available
-        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
-            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
-        } else {
-            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        // Use Cerebras if available (rotating keys) with 429 retry
+        let initial_key = self.get_cerebras_key();
+        let is_cerebras = initial_key.is_some();
+        
+        let (base_url, initial_api_key, model_name) = match initial_key {
+            Some((_name, k)) => ("https://api.cerebras.ai/v1/chat/completions".to_string(), k, "gpt-oss-120b"),
+            None => ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b"),
         };
         
         let payload = json!({
@@ -206,22 +284,37 @@ impl GroqClient {
             "max_completion_tokens": 8192
         });
         
-        let response = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", key))
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        let max_retries = if is_cerebras { self.cerebras_keys.len() + 1 } else { 2 };
+        let mut current_key = initial_api_key;
+        let mut retry_index = self.current_key_index();
         
-        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        for attempt in 0..max_retries {
+            let response = self.client
+                .post(&base_url)
+                .header("Authorization", format!("Bearer {}", current_key))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            
+            if response.status().is_success() {
+                let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                return Ok(json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string());
+            } else if response.status().as_u16() == 429 && is_cerebras && attempt < max_retries - 1 {
+                retry_index += 1;
+                if let Some((_name, k)) = self.get_cerebras_key_at(retry_index) {
+                    current_key = k;
+                    continue;
+                }
+            } else {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(format!("API error {}: {}", status, &body[..body.len().min(200)]));
+            }
+        }
         
-        Ok(content)
+        Err("All keys exhausted (429 on all)".to_string())
     }
     
     pub async fn chat(&self, message: &str) -> Result<String, String> {
@@ -326,39 +419,49 @@ impl GroqClient {
         // Build system prompt: Profile (FULL) + Context Windows + Instructions
         let system_prompt = if !self.user_profile.is_empty() {
             format!(
-                "You are Dharaneesh, a final-year CS student from Tamil Nadu in a live technical interview.\n\n\
-                YOUR PROFILE:\n{}\n\
+                "You are answering interview questions for Dharaneesh (final-year CS student). \
+                He reads your answer DIRECTLY from screen while speaking. Make it EASY TO READ ALOUD.\n\n\
+                PROFILE:\n{}\n\
                 {}\
-                RULES:\n\
-                - Answer like an Indian engineering student speaking in simple English\n\
-                - Give the TECHNICAL answer directly. No analogies with fruits, food, or daily life unless asked\n\
-                - For concepts (like ACID, OOP, etc): define it simply, then give a short technical example\n\
-                - NO bullet points, NO lists, NO markdown — just natural spoken sentences\n\
-                - Keep answers SHORT: 3-5 sentences max. Only expand if interviewer asks 'explain more'\n\
-                - Use simple connectors: 'So basically', 'The thing is', 'What happens is', 'For example'\n\
-                - Do NOT mention your projects/profile UNLESS the interviewer specifically asks about YOUR experience\n\
-                - If interviewer asks 'explain with example': give a CODE or DATABASE example, not a real-world analogy\n\
-                - Sound like a confident student who knows the concept well\n\n\
-                GOOD EXAMPLE (ACID properties):\n\
-                \"So ACID stands for Atomicity, Consistency, Isolation, and Durability. Atomicity means either all operations in a transaction complete, or none of them do. Like if I'm transferring money from one account to another, both the debit and credit should happen together, otherwise it rolls back. Consistency means the database always moves from one valid state to another.\"\n\n\
-                BAD EXAMPLE (never do this):\n\
-                \"Think of ACID like making lemonade. Atomicity is like squeezing the whole lemon...\"\n\n\
-                Remember: Technical answers, simple English, no analogies unless asked.",
+                === STRICT RULES ===\n\n\
+                1. NEVER give code unless the interviewer EXPLICITLY asks to write code or solve a coding problem.\n\
+                   - 'Explain event-driven architecture' → NO code, just explanation\n\
+                   - 'Write a program to sort a stack' → YES, give code\n\
+                   - 'How does sorting work?' → NO code, explain the concept\n\n\
+                2. FORMAT for easy reading:\n\
+                   - First line: **one sentence direct answer** (bold)\n\
+                   - Then 3-5 short lines explaining it\n\
+                   - Each line = one idea, max 15 words\n\
+                   - Use → arrows or dashes to separate points\n\
+                   - Leave blank lines between points for breathing room\n\n\
+                3. LANGUAGE:\n\
+                   - Speak like a student, not a textbook\n\
+                   - NO words like: 'Furthermore', 'paradigm', 'encompasses', 'facilitates'\n\
+                   - YES words like: 'basically', 'so what happens is', 'the main idea is'\n\
+                   - Every line must be readable in one breath\n\n\
+                4. ONLY mention your projects/profile if interviewer asks about YOUR experience.\n\n\
+                === EXAMPLE (Event-Driven Architecture) ===\n\n\
+                **Event-driven architecture is when different parts of a system talk to each other through events instead of direct calls.**\n\n\
+                → One service sends an event like 'order placed'\n\n\
+                → Other services listen for that event and react on their own\n\n\
+                → So the order service doesn't need to know about payment or shipping — they just pick up the event\n\n\
+                → This makes the system loosely coupled — you can add new services without changing existing ones\n\n\
+                → Common tools for this: Kafka, RabbitMQ, AWS SNS\n\n\
+                (Notice: no code, short lines, easy to read aloud, blank lines between points)",
                 self.user_profile,
                 context_block
             )
         } else {
             format!(
-                "You are a CS student in a live technical interview. Answer in simple Indian English.\n\
+                "You answer interview questions for a CS student who reads your answer DIRECTLY from screen.\n\
                 {}\
                 RULES:\n\
-                - Give TECHNICAL answers directly, no food/daily-life analogies\n\
-                - For concepts: define simply, then give a technical example\n\
-                - NO bullet points, NO lists — just natural spoken sentences\n\
-                - 3-5 sentences max. Expand only if asked\n\
-                - Use: 'So basically', 'The thing is', 'What happens is'\n\
-                - Do NOT mention projects unless specifically asked about YOUR experience\n\
-                - Sound like a confident student who knows the concept",
+                1. NEVER give code unless explicitly asked to write code\n\
+                2. First line: **one sentence direct answer** (bold)\n\
+                3. Then 3-5 short lines, one idea each, max 15 words per line\n\
+                4. Leave blank lines between points\n\
+                5. Simple words only — speakable in one breath per line\n\
+                6. No projects/profile unless asked about YOUR experience",
                 context_block
             )
         };
@@ -384,11 +487,13 @@ impl GroqClient {
             "content": message
         }));
         
-        // Use Cerebras for voice answers (faster)
-        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
-            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
-        } else {
-            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        // Use Cerebras for voice answers (rotating keys) with 429 retry
+        let initial_key = self.get_cerebras_key();
+        let is_cerebras = initial_key.is_some();
+        
+        let (base_url, initial_api_key, model_name) = match initial_key {
+            Some((_name, k)) => ("https://api.cerebras.ai/v1/chat/completions".to_string(), k, "gpt-oss-120b"),
+            None => ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b"),
         };
         
         let payload = json!({
@@ -398,22 +503,41 @@ impl GroqClient {
             "max_completion_tokens": 8192
         });
         
-        let response = self.client
-            .post(&url)
-            .header("Authorization", format!("Bearer {}", key))
-            .header("Content-Type", "application/json")
-            .json(&payload)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
+        // Retry loop: on 429, try next key (up to all keys)
+        let max_retries = if is_cerebras { self.cerebras_keys.len() + 1 } else { 2 };
+        let mut current_key = initial_api_key;
+        let mut retry_index = self.current_key_index();
         
-        let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
+        for attempt in 0..max_retries {
+            let response = self.client
+                .post(&base_url)
+                .header("Authorization", format!("Bearer {}", current_key))
+                .header("Content-Type", "application/json")
+                .json(&payload)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+            
+            if response.status().is_success() {
+                let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+                let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
+                return Ok(content);
+            } else if response.status().as_u16() == 429 && is_cerebras && attempt < max_retries - 1 {
+                // Rate limited - try next key immediately
+                retry_index += 1;
+                if let Some((_name, k)) = self.get_cerebras_key_at(retry_index) {
+                    eprintln!("[Cerebras] 429 on attempt {}, switching to next key", attempt + 1);
+                    current_key = k;
+                    continue;
+                }
+            } else {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(format!("API error {}: {}", status, &body[..body.len().min(200)]));
+            }
+        }
         
-        Ok(content)
+        Err("All Cerebras keys exhausted (429 on all)".to_string())
     }
     
     async fn analyze_images_internal(&self, images: &[&str], history: &[ConversationMessage]) -> Result<(String, bool), String> {
@@ -547,11 +671,10 @@ impl GroqClient {
             "content": problem
         }));
         
-        // Use Cerebras for coding (faster)
-        let (url, key, model_name) = if !self.cerebras_key.is_empty() {
-            ("https://api.cerebras.ai/v1/chat/completions".to_string(), self.cerebras_key.clone(), "gpt-oss-120b")
-        } else {
-            ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b")
+        // Use Cerebras for coding (rotating keys)
+        let (url, key, model_name) = match self.get_cerebras_key() {
+            Some((_name, k)) => ("https://api.cerebras.ai/v1/chat/completions".to_string(), k, "gpt-oss-120b"),
+            None => ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b"),
         };
         
         // Use code_interpreter tool to verify solutions against test cases

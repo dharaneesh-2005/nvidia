@@ -21,7 +21,7 @@ use modules::{
     mic_capture::MicCapture,
     mic_processor::MicProcessor,
     screen::ScreenCapture,
-    groq::{GroqClient, ConversationMessage},
+    groq::{GroqClient, ConversationMessage, NamedKey},
     code::CodeManager,
     config::Config,
     search::SearchHotkey,
@@ -90,13 +90,36 @@ async fn main() {
     let config = Config::load().expect("Failed to load config");
     let (tx, _rx) = broadcast::channel(100);
     
-    let groq = Arc::new(GroqClient::new_with_cerebras(config.groq_api_key.clone(), config.cerebras_api_key.clone()));
+    // Build Cerebras named keys list (unlimited - uses all provided keys)
+    let mut named_keys: Vec<NamedKey> = Vec::new();
+    // Backward compat: single key + plain array become unnamed entries
+    if !config.cerebras_api_key.is_empty() {
+        named_keys.push(NamedKey { name: "main".to_string(), key: config.cerebras_api_key.clone() });
+    }
+    for (i, k) in config.cerebras_api_keys.iter().enumerate() {
+        if !k.is_empty() {
+            named_keys.push(NamedKey { name: format!("key{}", i + 1), key: k.clone() });
+        }
+    }
+    // Named keys (shinchan, gyan, etc.)
+    for ck in &config.cerebras_keys {
+        if !ck.key.is_empty() {
+            named_keys.push(NamedKey { name: ck.name.clone(), key: ck.key.clone() });
+        }
+    }
+    
+    let mut groq_client = GroqClient::new_with_cerebras(config.groq_api_key.clone(), named_keys);
+    groq_client.set_broadcast(tx.clone());
+    let groq = Arc::new(groq_client);
     let code_manager = Arc::new(CodeManager::new(config.project_path.clone()));
     
     // Start search hotkey listener
     let search_hotkey = Arc::new(tokio::sync::Mutex::new(SearchHotkey::new()));
     let multi_capture_cancel = Arc::new(AtomicBool::new(false));
     tokio::spawn(start_search_hotkey_listener(tx.clone(), search_hotkey.clone()));
+    
+    // Candidate recording flag (toggled by Alt+Space)
+    let mic_recording = Arc::new(AtomicBool::new(false));
     
     let state = AppState {
         tx: tx.clone(),
@@ -116,8 +139,11 @@ async fn main() {
     // Start audio capture with proper streaming (interviewer questions)
     tokio::spawn(start_audio_capture(tx.clone(), groq.clone(), state.conversation.clone(), state.candidate_context.clone(), state.message_buffer.clone(), state.client_connections.clone()));
     
-    // Start microphone capture (candidate answers)
-    tokio::spawn(start_mic_capture(groq.clone(), state.candidate_context.clone(), tx.clone(), state.message_buffer.clone(), state.client_connections.clone()));
+    // Start microphone capture (candidate answers - manual Alt+Space toggle)
+    tokio::spawn(start_mic_capture(groq.clone(), state.candidate_context.clone(), tx.clone(), state.message_buffer.clone(), state.client_connections.clone(), mic_recording.clone()));
+    
+    // Start mic recording hotkey listener (Alt+Space toggle)
+    tokio::spawn(start_mic_recording_hotkey(tx.clone(), mic_recording.clone()));
     
     // Start screen capture hotkey listener
     tokio::spawn(start_screen_capture_hotkey(
@@ -342,6 +368,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 let _ = state.tx.send(serde_json::json!({
                                     "type": "set_pip_opacity",
                                     "opacity": opacity
+                                }).to_string());
+                            } else if msg_type == "set_pip_resizable" {
+                                let resizable = json.get("resizable").and_then(|v| v.as_bool()).unwrap_or(true);
+                                // Broadcast to Tauri app
+                                let _ = state.tx.send(serde_json::json!({
+                                    "type": "set_pip_resizable",
+                                    "resizable": resizable
                                 }).to_string());
                             } else if msg_type == "solve_problem" {
                                 let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -600,7 +633,7 @@ async fn start_audio_capture(tx: broadcast::Sender<String>, groq: Arc<GroqClient
     });
 }
 
-async fn start_mic_capture(groq: Arc<GroqClient>, candidate_context: CandidateContext, tx: broadcast::Sender<String>, buffer: MessageBuffer, connected: Arc<AtomicUsize>) {
+async fn start_mic_capture(groq: Arc<GroqClient>, candidate_context: CandidateContext, tx: broadcast::Sender<String>, buffer: MessageBuffer, connected: Arc<AtomicUsize>, recording_flag: Arc<AtomicBool>) {
     let (_mic_capture, mic_receiver) = MicCapture::new();
     
     std::thread::spawn(move || {
@@ -616,11 +649,49 @@ async fn start_mic_capture(groq: Arc<GroqClient>, candidate_context: CandidateCo
                 tx,
                 candidate_context,
                 buffer,
-                connected
+                connected,
+                recording_flag
             );
             processor.run().await;
         });
     });
+}
+
+/// Mic recording hotkey (Ctrl+Left Arrow toggle: start/stop recording candidate answer)
+async fn start_mic_recording_hotkey(tx: broadcast::Sender<String>, recording_flag: Arc<AtomicBool>) {
+    use winapi::um::winuser::{GetAsyncKeyState, VK_CONTROL, VK_LEFT};
+    
+    let mut was_pressed = false;
+    
+    loop {
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        
+        let ctrl = unsafe { GetAsyncKeyState(VK_CONTROL) } < 0;
+        let left = unsafe { GetAsyncKeyState(VK_LEFT) } < 0;
+        let is_pressed = ctrl && left;
+        
+        // Toggle on key press (rising edge)
+        if is_pressed && !was_pressed {
+            let now_recording = !recording_flag.load(Ordering::SeqCst);
+            recording_flag.store(now_recording, Ordering::SeqCst);
+            
+            if now_recording {
+                info!("[Mic Hotkey] Ctrl+Left - Recording STARTED");
+                let _ = tx.send(serde_json::json!({
+                    "type": "mic_recording",
+                    "recording": true
+                }).to_string());
+            } else {
+                info!("[Mic Hotkey] Ctrl+Left - Recording STOPPED");
+                let _ = tx.send(serde_json::json!({
+                    "type": "mic_recording",
+                    "recording": false
+                }).to_string());
+            }
+        }
+        
+        was_pressed = is_pressed;
+    }
 }
 
 

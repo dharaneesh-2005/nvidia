@@ -62,6 +62,15 @@ pub async fn start_ws_client(app: AppHandle, url: String) {
                                                 });
                                             }
                                         }
+                                        "set_pip_resizable" => {
+                                            if let Some(resizable) = json.get("resizable").and_then(|v| v.as_bool()) {
+                                                println!("[WS Client] Setting PiP resizable to {}", resizable);
+                                                let app_clone = app.clone();
+                                                tokio::spawn(async move {
+                                                    let _ = crate::pip::set_pip_resizable(app_clone, resizable).await;
+                                                });
+                                            }
+                                        }
                                         _ => {}
                                     }
                                 }

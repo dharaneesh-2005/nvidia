@@ -2,10 +2,20 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CerebrasKey {
+    pub name: String,
+    pub key: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub groq_api_key: String,
     #[serde(default)]
     pub cerebras_api_key: String,
+    #[serde(default)]
+    pub cerebras_api_keys: Vec<String>,
+    #[serde(default)]
+    pub cerebras_keys: Vec<CerebrasKey>,
     #[serde(default)]
     pub openrouter_api_key: String,
     #[serde(default)]

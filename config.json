@@ -1,6 +1,15 @@
 {
   "groq_api_key": "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",
-  "cerebras_api_key": "csk-tvm4yk4fn5x3jxwn42tm3tp4jfddhndjjhdy5etnx9cx8h6w",
+  "cerebras_api_key": "",
+  "cerebras_api_keys": [],
+  "cerebras_keys": [
+    { "name": "Shinchan", "key": "csk-tvm4yk4fn5x3jxwn42tm3tp4jfddhndjjhdy5etnx9cx8h6w" },
+    { "name": "Gyan", "key": "csk-j3992hdde9dmxrx4dhvwr6rkd8x88xmfctknjte2w5r9nvp3" },
+    { "name": "Hattori", "key": "csk-cfm5c86mkfty3ye6m289j546rd4nx64vd6nnywpp48xn5jp2" },
+    { "name": "Nobita", "key": "csk-dwh2fhnttf3kmdjrrhj6phkfnj96prmd5ryk8tjfym4cft3v" },
+    { "name": "Doraemon", "key": "csk-3m3e3h4w25mwhvm3w6rf26km4p486tvy93649yv2kp45jynk" },
+    { "name": "Ben", "key": "csk-vxey38jd8c59vrv8ne5j4ce4kppycen5tncc4hkctrr4nmkr" }
+  ],
   "openrouter_api_key": "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",
   "gemini_api_key": "AIzaSyB6WCZ6HjBmgSOvbPm9knx7400KPsILqPA",
   "server": {

@@ -213,6 +213,49 @@ pub async fn minimize_pip_window(app: AppHandle) -> Result<String, String> {
     }
 }
 
+/// Set whether the PiP window can be resized (lock/unlock)
+/// Uses Windows API to toggle WS_THICKFRAME directly - avoids Tauri window recreation
+#[tauri::command]
+pub async fn set_pip_resizable(app: AppHandle, resizable: bool) -> Result<String, String> {
+    if let Some(window) = app.get_webview_window("pip") {
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{
+                GetWindowLongPtrW, SetWindowLongPtrW, GWL_STYLE, WS_THICKFRAME,
+            };
+            use windows::Win32::Foundation::HWND;
+            
+            let hwnd = window.hwnd().map_err(|e| format!("Failed to get hwnd: {}", e))?;
+            let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+            
+            unsafe {
+                let hwnd_win = HWND(hwnd_ptr);
+                let current_style = GetWindowLongPtrW(hwnd_win, GWL_STYLE);
+                
+                let new_style = if resizable {
+                    // Add resize border
+                    current_style | (WS_THICKFRAME.0 as isize)
+                } else {
+                    // Remove resize border (no resize cursor)
+                    current_style & !(WS_THICKFRAME.0 as isize)
+                };
+                
+                SetWindowLongPtrW(hwnd_win, GWL_STYLE, new_style);
+                println!("[PiP] Resize border {} (WS_THICKFRAME)", if resizable { "enabled" } else { "disabled" });
+            }
+        }
+        
+        #[cfg(not(target_os = "windows"))]
+        {
+            window.set_resizable(resizable).map_err(|e| format!("Failed: {}", e))?;
+        }
+        
+        Ok(format!("Resizable: {}", resizable))
+    } else {
+        Ok("PiP window not found".to_string())
+    }
+}
+
 /// Apply Windows SetWindowDisplayAffinity for screen capture exclusion
 #[cfg(target_os = "windows")]
 fn apply_capture_exclusion_windows(window: &tauri::WebviewWindow) -> Result<(), String> {
