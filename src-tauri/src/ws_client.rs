@@ -71,6 +71,16 @@ pub async fn start_ws_client(app: AppHandle, url: String) {
                                                 });
                                             }
                                         }
+                                        "theme_change" => {
+                                            if let Some(theme) = json.get("theme").and_then(|v| v.as_str()) {
+                                                println!("[WS Client] Theme change to: {}", theme);
+                                                let app_clone = app.clone();
+                                                let theme_str = theme.to_string();
+                                                tokio::spawn(async move {
+                                                    let _ = crate::pip::set_window_border_color(app_clone, theme_str).await;
+                                                });
+                                            }
+                                        }
                                         _ => {}
                                     }
                                 }

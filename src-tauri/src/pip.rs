@@ -85,6 +85,16 @@ pub async fn open_pip_window(
         apply_capture_exclusion_windows(&pip_window)?;
         apply_no_activate_windows(&pip_window)?;
         force_static_cursor_windows(&pip_window)?;
+        
+        // Apply initial border color based on saved theme
+        let saved_theme = if let Some(config_dir) = app.path().app_config_dir().ok() {
+            let theme_file = config_dir.join("theme.txt");
+            std::fs::read_to_string(theme_file).unwrap_or_else(|_| "dark".to_string())
+        } else {
+            "dark".to_string()
+        };
+        println!("[PiP] Applying initial border color for theme: {}", saved_theme);
+        apply_border_color_windows(&pip_window, &saved_theme)?;
     }
 
     #[cfg(target_os = "macos")]
@@ -286,6 +296,43 @@ fn apply_capture_exclusion_windows(window: &tauri::WebviewWindow) -> Result<(), 
         }
     }
 }
+
+/// Apply window border color based on theme (Windows helper function)
+#[cfg(target_os = "windows")]
+fn apply_border_color_windows(window: &tauri::WebviewWindow, theme: &str) -> Result<(), String> {
+    use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_BORDER_COLOR};
+    use windows::Win32::Foundation::{HWND, COLORREF};
+    
+    let hwnd = window.hwnd().map_err(|e| format!("Failed to get window handle: {}", e))?;
+    let hwnd_ptr = hwnd.0 as *mut core::ffi::c_void;
+    
+    // Set border color based on theme (BGR format for Windows)
+    let color = if theme == "light" {
+        COLORREF(0x00e0e0e0) // Light gray #e0e0e0
+    } else {
+        COLORREF(0x001a1a1a) // Dark gray #1a1a1a
+    };
+    
+    unsafe {
+        let hwnd_win = HWND(hwnd_ptr);
+        let color_value = color.0 as u32;
+        let result = DwmSetWindowAttribute(
+            hwnd_win,
+            DWMWA_BORDER_COLOR,
+            &color_value as *const _ as *const _,
+            std::mem::size_of::<u32>() as u32,
+        );
+        
+        if result.is_ok() {
+            println!("[PiP] ✓ Window border color set to: {} theme ({})", theme, if theme == "light" { "#e0e0e0" } else { "#1a1a1a" });
+            Ok(())
+        } else {
+            println!("[PiP] ⚠ Failed to set border color (Windows 11 22H2+ required)");
+            Ok(()) // Don't fail - just a visual feature
+        }
+    }
+}
+
 
 /// Apply Windows WS_EX_NOACTIVATE to prevent focus stealing
 #[cfg(target_os = "windows")]
@@ -534,5 +581,38 @@ pub async fn set_pip_opacity(app: AppHandle, opacity: f64) -> Result<(), String>
 #[tauri::command]
 pub async fn set_pip_opacity(_app: AppHandle, opacity: f64) -> Result<(), String> {
     println!("[PiP] Opacity control not implemented for this platform");
+    Ok(())
+}
+
+/// Set window border color based on theme (Windows only)
+#[cfg(target_os = "windows")]
+#[tauri::command]
+pub async fn set_window_border_color(app: AppHandle, theme: String) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("pip") {
+        apply_border_color_windows(&window, &theme)?;
+    }
+    
+    // Save theme preference to file for next window creation
+    // Save in user's config directory or app data directory
+    if let Some(config_dir) = app.path().app_config_dir().ok() {
+        let theme_file = config_dir.join("theme.txt");
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
+            println!("[Theme] Warning: Could not create config directory: {}", e);
+        }
+        if let Err(e) = std::fs::write(&theme_file, &theme) {
+            println!("[Theme] Warning: Could not save theme preference: {}", e);
+        } else {
+            println!("[Theme] Saved preference: {} to {:?}", theme, theme_file);
+        }
+    }
+    
+    Ok(())
+}
+
+/// Set window border color (macOS/Linux fallback - not implemented)
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+pub async fn set_window_border_color(_app: AppHandle, theme: String) -> Result<(), String> {
+    println!("[PiP] Border color control not implemented for this platform");
     Ok(())
 }

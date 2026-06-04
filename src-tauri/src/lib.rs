@@ -21,6 +21,7 @@ pub fn run() {
             pip::set_pip_opacity,
             pip::set_pip_resizable,
             pip::pip_content_ready,
+            pip::set_window_border_color,
         ])
         .setup(|app| {
             // Hide the main window on startup - we'll use the web server

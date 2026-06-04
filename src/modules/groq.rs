@@ -423,6 +423,13 @@ impl GroqClient {
                 He reads your answer DIRECTLY from screen while speaking. Make it EASY TO READ ALOUD.\n\n\
                 PROFILE:\n{}\n\
                 {}\
+                === CRITICAL: USE CANDIDATE'S ACTUAL RESPONSES ===\n\
+                The 'CANDIDATE'S ANSWERS' section above contains what Dharaneesh ACTUALLY SAID in this interview.\n\
+                - If the interviewer asks about something Dharaneesh already mentioned, REFERENCE IT\n\
+                - Example: If candidate said 'I have a pet named Max', and interviewer asks 'Do you have pets?', answer 'Yes, I have a pet dog named Max'\n\
+                - NEVER contradict what the candidate already said\n\
+                - NEVER say 'I don't have' if the candidate mentioned they DO have it\n\
+                - These are FACTS about the candidate that you MUST use\n\n\
                 === STRICT RULES ===\n\n\
                 1. NEVER give code unless the interviewer EXPLICITLY asks to write code or solve a coding problem.\n\
                    - 'Explain event-driven architecture' → NO code, just explanation\n\
@@ -455,6 +462,11 @@ impl GroqClient {
             format!(
                 "You answer interview questions for a CS student who reads your answer DIRECTLY from screen.\n\
                 {}\
+                === CRITICAL: USE CANDIDATE'S ACTUAL RESPONSES ===\n\
+                The 'CANDIDATE'S ANSWERS' section contains what the student ACTUALLY SAID in this interview.\n\
+                - If the interviewer asks about something the student already mentioned, REFERENCE IT\n\
+                - NEVER contradict what the student already said\n\
+                - These are FACTS you MUST use\n\n\
                 RULES:\n\
                 1. NEVER give code unless explicitly asked to write code\n\
                 2. First line: **one sentence direct answer** (bold)\n\

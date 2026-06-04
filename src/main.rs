@@ -376,6 +376,14 @@ async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                     "type": "set_pip_resizable",
                                     "resizable": resizable
                                 }).to_string());
+                            } else if msg_type == "theme_change" {
+                                let theme = json.get("theme").and_then(|v| v.as_str()).unwrap_or("dark").to_string();
+                                // Broadcast theme change to all clients (including PiP window)
+                                let _ = state.tx.send(serde_json::json!({
+                                    "type": "theme_change",
+                                    "theme": theme
+                                }).to_string());
+                                info!("[Theme] Broadcasted theme change: {}", theme);
                             } else if msg_type == "solve_problem" {
                                 let question = json.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
                                 if !question.is_empty() {

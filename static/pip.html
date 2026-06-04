@@ -6,6 +6,40 @@
     <title>Nvidia PiP</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
     <style>
+        :root {
+            /* Dark theme (default) */
+            --bg-primary: rgba(30, 30, 30, 0.98);
+            --bg-header: linear-gradient(180deg, rgba(50, 50, 50, 0.95) 0%, rgba(40, 40, 40, 0.95) 100%);
+            --bg-status: rgba(35, 35, 35, 0.95);
+            --bg-chat: rgba(25, 25, 25, 0.95);
+            --bg-message-q: rgba(50, 50, 50, 0.9);
+            --bg-message-a: rgba(40, 40, 40, 0.95);
+            --bg-button: rgba(60, 60, 60, 0.8);
+            --border-color: rgba(80, 80, 80, 0.3);
+            --text-primary: #e0e0e0;
+            --text-secondary: #888;
+            --text-muted: #666;
+            --accent-color: #10a37f;
+            --window-border: #1a1a1a;
+        }
+        
+        body.light-theme {
+            /* Light theme */
+            --bg-primary: rgba(255, 255, 255, 0.98);
+            --bg-header: linear-gradient(180deg, rgba(245, 245, 245, 0.95) 0%, rgba(240, 240, 240, 0.95) 100%);
+            --bg-status: rgba(250, 250, 250, 0.95);
+            --bg-chat: rgba(255, 255, 255, 0.95);
+            --bg-message-q: rgba(245, 245, 245, 0.9);
+            --bg-message-a: rgba(255, 255, 255, 0.95);
+            --bg-button: rgba(240, 240, 240, 0.8);
+            --border-color: rgba(200, 200, 200, 0.5);
+            --text-primary: #2a2a2a;
+            --text-secondary: #555;
+            --text-muted: #777;
+            --accent-color: #0d8c6a;
+            --window-border: #e0e0e0;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -15,11 +49,12 @@
 
         html, body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: rgba(30, 30, 30, 0.98);
-            color: #e0e0e0;
+            background: var(--bg-primary);
+            color: var(--text-primary);
             height: 100vh;
             overflow: hidden;
             user-select: none;
+            transition: background 0.3s, color 0.3s;
         }
 
         .pip-container {
@@ -34,8 +69,8 @@
         /* Drag handle area */
         .drag-handle {
             height: 32px;
-            background: linear-gradient(180deg, rgba(50, 50, 50, 0.95) 0%, rgba(40, 40, 40, 0.95) 100%);
-            border-bottom: 1px solid rgba(80, 80, 80, 0.3);
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -43,6 +78,7 @@
             cursor: move;
             -webkit-app-region: drag;
             user-select: none;
+            transition: background 0.3s, border-color 0.3s;
         }
 
         .drag-handle .title-area {
@@ -55,14 +91,14 @@
         .drag-handle .title {
             font-size: 11px;
             font-weight: 600;
-            color: #10a37f;
+            color: var(--accent-color);
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         .drag-handle .subtitle {
             font-size: 9px;
-            color: #666;
+            color: var(--text-muted);
         }
 
         /* Window controls */
@@ -103,13 +139,14 @@
         /* Status bar */
         .status-bar {
             height: 24px;
-            background: rgba(35, 35, 35, 0.95);
+            background: var(--bg-status);
             display: flex;
             align-items: center;
             justify-content: space-between;
             padding: 0 12px;
             font-size: 10px;
-            border-bottom: 1px solid rgba(80, 80, 80, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.3s, border-color 0.3s;
         }
 
         .status-indicator {
@@ -132,7 +169,7 @@
         }
 
         .status-text {
-            color: #888;
+            color: var(--text-secondary);
             font-weight: 500;
         }
 
@@ -240,7 +277,8 @@
             flex: 1;
             overflow-y: auto;
             padding: 8px;
-            background: rgba(25, 25, 25, 0.95);
+            background: var(--bg-chat);
+            transition: background 0.3s;
         }
 
         .chat-container::-webkit-scrollbar {
@@ -267,19 +305,21 @@
         }
 
         .msg-q {
-            background: rgba(50, 50, 50, 0.9);
-            border: 1px solid rgba(80, 80, 80, 0.3);
+            background: var(--bg-message-q);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 8px;
             margin-bottom: 4px;
+            transition: background 0.3s, border-color 0.3s;
         }
 
         .msg-a {
-            background: rgba(40, 40, 40, 0.95);
-            border: 1px solid rgba(80, 80, 80, 0.3);
+            background: var(--bg-message-a);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 8px;
-            border-left: 2px solid #10a37f;
+            border-left: 2px solid var(--accent-color);
+            transition: background 0.3s, border-color 0.3s;
         }
 
         .msg-label {
@@ -289,7 +329,7 @@
             letter-spacing: 0.5px;
             margin-bottom: 4px;
             opacity: 0.7;
-            color: #888;
+            color: var(--text-secondary);
         }
 
         .msg-content {
@@ -297,7 +337,8 @@
             line-height: 1.5;
             word-wrap: break-word;
             overflow-wrap: break-word;
-            color: #e0e0e0;
+            color: var(--text-primary);
+            transition: color 0.3s;
         }
 
         .msg-content pre {
@@ -505,6 +546,11 @@
             const chat = document.getElementById('chat');
 
             switch(data.type) {
+                case 'theme_change':
+                    // Apply theme to PiP window
+                    applyTheme(data.theme);
+                    break;
+                    
                 case 'transcription':
                     // Remove empty state if present
                     const emptyState = chat.querySelector('.empty-state');
@@ -536,6 +582,33 @@
                     break;
             }
         }
+        
+        function applyTheme(theme) {
+            const body = document.body;
+            if (theme === 'light') {
+                body.classList.add('light-theme');
+            } else {
+                body.classList.remove('light-theme');
+            }
+            
+            // Save theme preference
+            localStorage.setItem('theme', theme);
+            
+            // Notify Tauri to update window border color
+            if (window.__TAURI__) {
+                window.__TAURI__.invoke('set_window_border_color', { 
+                    theme: theme 
+                }).catch(err => console.log('[PiP] Border color update not available'));
+            }
+            
+            console.log(`[PiP] Theme applied: ${theme}`);
+        }
+        
+        // Load saved theme on init
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            applyTheme(savedTheme);
+        });
 
         function formatAnswer(text) {
             if (!text || text.trim() === '') {

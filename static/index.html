@@ -8,6 +8,40 @@
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
     <link href="/static/css/search.css" rel="stylesheet" />
     <style>
+        :root {
+            /* Dark theme (default) */
+            --bg-primary: #1a1a1a;
+            --bg-secondary: #2a2a2a;
+            --bg-header: rgba(30, 30, 30, 0.95);
+            --bg-message-q: rgba(50, 50, 50, 0.9);
+            --bg-message-a: rgba(40, 40, 40, 0.95);
+            --bg-button: rgba(50, 50, 50, 0.9);
+            --bg-code: rgba(25, 25, 25, 0.98);
+            --border-color: rgba(80, 80, 80, 0.3);
+            --text-primary: #e0e0e0;
+            --text-secondary: #aaa;
+            --text-muted: #888;
+            --accent-color: #10a37f;
+            --window-border: #1a1a1a;
+        }
+        
+        body.light-theme {
+            /* Light theme */
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #ffffff;
+            --bg-header: rgba(255, 255, 255, 0.95);
+            --bg-message-q: rgba(245, 245, 245, 0.9);
+            --bg-message-a: rgba(255, 255, 255, 0.95);
+            --bg-button: rgba(240, 240, 240, 0.9);
+            --bg-code: rgba(250, 250, 250, 0.98);
+            --border-color: rgba(200, 200, 200, 0.5);
+            --text-primary: #2a2a2a;
+            --text-secondary: #555;
+            --text-muted: #777;
+            --accent-color: #0d8c6a;
+            --window-border: #e0e0e0;
+        }
+        
         * {
             margin: 0;
             padding: 0;
@@ -16,17 +50,18 @@
         }
         
         html {
-            background: #1a1a1a;
+            background: var(--bg-primary);
             min-height: 100vh;
         }
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            background: #2a2a2a;
+            background: var(--bg-secondary);
             background-attachment: fixed;
-            color: #e0e0e0;
+            color: var(--text-primary);
             min-height: 100vh;
             overflow: hidden;
+            transition: background 0.3s, color 0.3s;
         }
         
         .container {
@@ -37,12 +72,13 @@
         }
         
         header {
-            background: rgba(30, 30, 30, 0.95);
-            border-bottom: 1px solid rgba(50, 50, 50, 0.5);
+            background: var(--bg-header);
+            border-bottom: 1px solid var(--border-color);
             padding: 4px 8px;
             position: sticky;
             top: 0;
             z-index: 100;
+            transition: background 0.3s, border-color 0.3s;
         }
         
         /* PiP-specific header styling */
@@ -252,9 +288,9 @@
         }
         
         .btn {
-            background: rgba(50, 50, 50, 0.9);
-            border: 1px solid rgba(70, 70, 70, 0.6);
-            color: #aaa;
+            background: var(--bg-button);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
             padding: 4px 8px;
             border-radius: 4px;
             font-size: 10px;
@@ -267,12 +303,12 @@
         
         .btn:active {
             transform: scale(0.95);
-            background: rgba(70, 70, 70, 0.9);
+            opacity: 0.8;
         }
         
         .btn:hover {
-            background: rgba(70, 70, 70, 0.9);
-            color: #ddd;
+            opacity: 0.9;
+            color: var(--text-primary);
         }
         
         .btn-pip.active {
@@ -289,9 +325,9 @@
             width: 18px;
             height: 18px;
             border-radius: 3px;
-            border: 1px solid rgba(70, 70, 70, 0.6);
-            background: rgba(50, 50, 50, 0.9);
-            color: #aaa;
+            border: 1px solid var(--border-color);
+            background: var(--bg-button);
+            color: var(--text-secondary);
             font-size: 12px;
             font-weight: 700;
             line-height: 1;
@@ -299,6 +335,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            transition: all 0.15s;
         }
         
         .btn-chunk:active {
@@ -306,8 +343,16 @@
         }
         
         .btn-chunk.has-chunks {
-            background: rgba(70, 70, 70, 0.9);
-            color: #fff;
+            opacity: 0.9;
+            color: var(--text-primary);
+        }
+        
+        body.light-theme .btn-chunk {
+            background: rgba(240, 240, 240, 0.9);
+        }
+        
+        body.light-theme .btn-chunk.has-chunks {
+            background: rgba(220, 220, 220, 0.9);
         }
         
         .mic-selector {
@@ -488,14 +533,15 @@
         }
         
         .msg-q {
-            background: rgba(50, 50, 50, 0.9);
+            background: var(--bg-message-q);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
-            border: 1px solid rgba(80, 80, 80, 0.3);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 12px;
             margin-bottom: 8px;
             position: relative;
+            transition: background 0.3s, border-color 0.3s;
         }
         
         .solve-btn {
@@ -522,13 +568,14 @@
         }
         
         .msg-a {
-            background: rgba(40, 40, 40, 0.95);
+            background: var(--bg-message-a);
             backdrop-filter: blur(5px);
             -webkit-backdrop-filter: blur(5px);
-            border: 1px solid rgba(80, 80, 80, 0.3);
+            border: 1px solid var(--border-color);
             border-radius: 12px;
             padding: 12px;
-            border-left: 3px solid #10a37f;
+            border-left: 3px solid var(--accent-color);
+            transition: background 0.3s, border-color 0.3s;
         }
         
         .msg-label {
@@ -545,10 +592,15 @@
             line-height: 1.6;
             word-wrap: break-word;
             overflow-wrap: break-word;
-            color: #e0e0e0;
-            text-shadow: 0 1px 2px rgba(0,0,0,0.3);
+            color: var(--text-primary);
+            text-shadow: none;
             max-width: 100%;
             overflow-x: auto;
+            transition: color 0.3s;
+        }
+        
+        body.light-theme .msg-content {
+            text-shadow: none;
         }
         .heading1 { font-size: 1.5em; font-weight: 700; margin: 0.8em 0; }
         .heading2 { font-size: 1.3em; font-weight: 600; margin: 0.7em 0; }
@@ -629,21 +681,27 @@
             margin: 12px 0;
             border-radius: 8px;
             overflow: hidden;
-            background: rgba(25, 25, 25, 0.98);
+            background: var(--bg-code);
             font-size: 12px;
-            border: 1px solid rgba(80, 80, 80, 0.2);
+            border: 1px solid var(--border-color);
             width: 100%;
             display: block;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+            transition: background 0.3s, border-color 0.3s;
         }
         
         .code-header {
-            background: rgba(20, 20, 20, 0.98);
+            background: var(--bg-code);
             padding: 8px 12px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid rgba(80, 80, 80, 0.2);
+            border-bottom: 1px solid var(--border-color);
+            transition: background 0.3s, border-color 0.3s;
+        }
+        
+        body.light-theme .code-header {
+            background: rgba(245, 245, 245, 0.98);
         }
         
         .code-lang {
@@ -670,7 +728,7 @@
         
         pre[class*="hljs"], pre code {
             margin: 0 !important;
-            background: rgba(25, 25, 25, 0.98) !important;
+            background: var(--bg-code) !important;
             padding: 12px !important;
             max-height: 400px;
             overflow-x: auto;
@@ -688,6 +746,11 @@
             border-radius: 0 0 8px 8px;
         }
         
+        body.light-theme pre[class*="hljs"], 
+        body.light-theme pre code {
+            background: rgba(250, 250, 250, 0.98) !important;
+        }
+        
         code[class*="hljs"], pre code {
             font-family: 'Fira Code', 'Courier New', monospace !important;
             font-size: 12px !important;
@@ -703,12 +766,18 @@
         }
         
         .msg-content code:not(.hljs) {
-            background: rgba(30, 30, 30, 0.95);
+            background: var(--bg-code);
             padding: 3px 6px;
             border-radius: 4px;
             font-family: 'Fira Code', 'Courier New', monospace;
             font-size: 14px;
-            color: #d0d0d0;
+            color: var(--text-primary);
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        body.light-theme .msg-content code:not(.hljs) {
+            background: rgba(240, 240, 240, 0.95);
+            color: #24292f;
         }
         
         .markdown-table {
@@ -757,63 +826,111 @@
             border-radius: 2px;
         }
         
-        /* Enhanced Highlight.js Syntax Highlighting */
+        /* Enhanced Highlight.js Syntax Highlighting - Dark Theme */
         .hljs {
-            background: rgba(25, 25, 25, 0.98) !important;
-            color: #e0e0e0 !important;
+            background: var(--bg-code) !important;
+            color: var(--text-primary) !important;
         }
         
-        .hljs-comment,
-        .hljs-quote {
+        body:not(.light-theme) .hljs-comment,
+        body:not(.light-theme) .hljs-quote {
             color: #7C7C7C;
         }
         
-        .hljs-variable,
-        .hljs-template-variable,
-        .hljs-tag,
-        .hljs-name,
-        .hljs-selector-id,
-        .hljs-selector-class,
-        .hljs-regexp,
-        .hljs-deletion {
+        body:not(.light-theme) .hljs-variable,
+        body:not(.light-theme) .hljs-template-variable,
+        body:not(.light-theme) .hljs-tag,
+        body:not(.light-theme) .hljs-name,
+        body:not(.light-theme) .hljs-selector-id,
+        body:not(.light-theme) .hljs-selector-class,
+        body:not(.light-theme) .hljs-regexp,
+        body:not(.light-theme) .hljs-deletion {
             color: #96CBFE;
         }
         
-        .hljs-number,
-        .hljs-built_in,
-        .hljs-builtin-name,
-        .hljs-literal,
-        .hljs-type,
-        .hljs-params,
-        .hljs-meta,
-        .hljs-link {
+        body:not(.light-theme) .hljs-number,
+        body:not(.light-theme) .hljs-built_in,
+        body:not(.light-theme) .hljs-builtin-name,
+        body:not(.light-theme) .hljs-literal,
+        body:not(.light-theme) .hljs-type,
+        body:not(.light-theme) .hljs-params,
+        body:not(.light-theme) .hljs-meta,
+        body:not(.light-theme) .hljs-link {
             color: #A8FF60;
         }
         
-        .hljs-attribute {
+        body:not(.light-theme) .hljs-attribute {
             color: #EDEDED;
         }
         
-        .hljs-string,
-        .hljs-symbol,
-        .hljs-bullet,
-        .hljs-addition {
+        body:not(.light-theme) .hljs-string,
+        body:not(.light-theme) .hljs-symbol,
+        body:not(.light-theme) .hljs-bullet,
+        body:not(.light-theme) .hljs-addition {
             color: #CFCB90;
         }
         
-        .hljs-title,
-        .hljs-section {
+        body:not(.light-theme) .hljs-title,
+        body:not(.light-theme) .hljs-section {
             color: #FFD2A7;
         }
         
-        .hljs-keyword,
-        .hljs-selector-tag {
+        body:not(.light-theme) .hljs-keyword,
+        body:not(.light-theme) .hljs-selector-tag {
             color: #E0C589;
         }
         
-        /* Ensure proper contrast in our dark theme */
+        /* Light theme syntax highlighting */
+        body.light-theme .hljs-comment,
+        body.light-theme .hljs-quote {
+            color: #6a737d;
+        }
+        
+        body.light-theme .hljs-variable,
+        body.light-theme .hljs-template-variable,
+        body.light-theme .hljs-tag,
+        body.light-theme .hljs-name,
+        body.light-theme .hljs-selector-id,
+        body.light-theme .hljs-selector-class,
+        body.light-theme .hljs-regexp,
+        body.light-theme .hljs-deletion {
+            color: #0550ae;
+        }
+        
+        body.light-theme .hljs-number,
+        body.light-theme .hljs-built_in,
+        body.light-theme .hljs-builtin-name,
+        body.light-theme .hljs-literal,
+        body.light-theme .hljs-type,
+        body.light-theme .hljs-params,
+        body.light-theme .hljs-meta,
+        body.light-theme .hljs-link {
+            color: #0a3069;
+        }
+        
+        body.light-theme .hljs-attribute {
+            color: #24292f;
+        }
+        
+        body.light-theme .hljs-string,
+        body.light-theme .hljs-symbol,
+        body.light-theme .hljs-bullet,
+        body.light-theme .hljs-addition {
+            color: #0a3069;
+        }
+        
+        body.light-theme .hljs-title,
+        body.light-theme .hljs-section {
+            color: #8250df;
+        }
+        
+        body.light-theme .hljs-keyword,
+        body.light-theme .hljs-selector-tag {
+            color: #cf222e;
+        }
+        
         pre.hljs {
-            background: rgba(25, 25, 25, 0.98) !important;
+            background: var(--bg-code) !important;
         }
         
         code.hljs {
@@ -840,6 +957,7 @@
                 <button class="btn" onclick="debugRing()">GDbg</button>
                 <button class="btn btn-pip" id="pipBtn" onclick="togglePiP()">PiP</button>
                 <button class="btn" id="lockBtn" onclick="toggleLock()">Lock</button>
+                <button class="btn" id="themeBtn" onclick="toggleTheme()">🌙</button>
                 <button class="btn" onclick="clearHistory()">Clr</button>
             </div>
             <!-- Candidate transcription indicator -->
@@ -1527,6 +1645,37 @@
                 currentAnswer = null;
             }
         }
+        
+        // Theme toggle functionality
+        function toggleTheme() {
+            const body = document.body;
+            const themeBtn = document.getElementById('themeBtn');
+            const isLight = body.classList.toggle('light-theme');
+            
+            // Update button icon
+            themeBtn.textContent = isLight ? '☀️' : '🌙';
+            
+            // Save preference
+            localStorage.setItem('theme', isLight ? 'light' : 'dark');
+            
+            // Broadcast theme change to PiP window and Tauri app
+            sendMessage(JSON.stringify({ 
+                type: 'theme_change', 
+                theme: isLight ? 'light' : 'dark' 
+            }));
+            
+            console.log(`Theme switched to: ${isLight ? 'light' : 'dark'}`);
+        }
+        
+        // Load saved theme on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme');
+            if (savedTheme === 'light') {
+                document.body.classList.add('light-theme');
+                const themeBtn = document.getElementById('themeBtn');
+                if (themeBtn) themeBtn.textContent = '☀️';
+            }
+        });
         
         async function toggleMic() {
             if (!isRecording) {
