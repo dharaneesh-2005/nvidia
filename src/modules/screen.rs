@@ -4,7 +4,7 @@ use base64::{Engine as _, engine::general_purpose};
 use std::sync::{Arc, Mutex};
 
 #[cfg(windows)]
-use winapi::um::winuser::{RegisterHotKey, MOD_CONTROL, MOD_ALT, MOD_SHIFT};
+use winapi::um::winuser::{RegisterHotKey, MOD_CONTROL, MOD_SHIFT};
 
 pub struct ScreenCapture {
     captured: Arc<Mutex<Option<String>>>,

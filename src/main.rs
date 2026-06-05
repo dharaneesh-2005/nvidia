@@ -8,12 +8,11 @@ use axum::{
 };
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::collections::{VecDeque, HashSet};
 use tokio::sync::{broadcast, RwLock};
 use tower_http::services::ServeDir;
 use tracing::{info, error};
-use crossbeam_channel::RecvTimeoutError;
 
 use modules::{
     audio::AudioCapture,
@@ -50,11 +49,11 @@ struct AppState {
     gemini_key: String,
 }
 
-const SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
+const SILENCE_TIMEOUT: Duration = Duration::from_secs(2); // 2 seconds of silence before processing
 const MIN_AUDIO_DURATION: Duration = Duration::from_millis(1000);
 const MIN_AVERAGE_ENERGY: f32 = 0.025;
 const ENERGY_DROP_THRESHOLD: f32 = 0.55;
-const ENERGY_DROP_TIMEOUT: Duration = Duration::from_millis(350);
+const ENERGY_DROP_TIMEOUT: Duration = Duration::from_millis(800); // Increased to allow natural pauses
 const MIN_SPEECH_CHUNKS: usize = 12;
 const MAX_AUDIO_DURATION: Duration = Duration::from_secs(30);
 const SPEECH_ENERGY_THRESHOLD: f32 = 0.012;

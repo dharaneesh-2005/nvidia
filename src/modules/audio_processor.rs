@@ -12,9 +12,9 @@ const SAMPLE_RATE: u32 = 16000;
 const MIN_AUDIO_DURATION: Duration = Duration::from_millis(600);
 const MAX_AUDIO_DURATION: Duration = Duration::from_secs(30);
 
-// Adaptive silence detection (like Parakeet/LockedIn)
-const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(700);
-const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(1200);
+// Adaptive silence detection (increased for natural pauses in speech)
+const BASE_SILENCE_TIMEOUT: Duration = Duration::from_secs(2); // 2 seconds for short pauses
+const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_secs(2); // 2 seconds for longer pauses
 const NOISE_CALIBRATION_FRAMES: usize = 50;
 const RECALIBRATION_INTERVAL: Duration = Duration::from_secs(10);
 

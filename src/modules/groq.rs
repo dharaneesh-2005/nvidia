@@ -2,8 +2,9 @@ use reqwest::Client;
 use serde_json::json;
 use std::fs;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicUsize, AtomicBool, Ordering};
 use tokio::sync::broadcast;
+use std::time::Duration;
 
 #[derive(Clone, Debug)]
 pub struct ConversationMessage {
@@ -18,6 +19,11 @@ pub struct NamedKey {
     pub key: String,
 }
 
+// Failover configuration
+const GROQ_TIMEOUT: Duration = Duration::from_secs(3);
+const CEREBRAS_FALLBACK_WINDOW: usize = 5;  // 5 responses before returning to Groq
+const MAX_GROQ_FAILURES: usize = 3;          // 3 failures = permanent switch to Cerebras
+
 pub struct GroqClient {
     client: Client,
     api_key: String,
@@ -26,6 +32,10 @@ pub struct GroqClient {
     user_profile: String,
     // Broadcast channel to notify UI which key is active
     tx: Option<broadcast::Sender<String>>,
+    // Failover state
+    groq_consecutive_failures: Arc<AtomicUsize>,
+    use_cerebras_permanently: Arc<AtomicBool>,
+    cerebras_fallback_count: Arc<AtomicUsize>,
 }
 
 impl GroqClient {
@@ -50,12 +60,85 @@ impl GroqClient {
             cerebras_counter: Arc::new(AtomicUsize::new(0)),
             user_profile,
             tx: None,
+            // Initialize failover state
+            groq_consecutive_failures: Arc::new(AtomicUsize::new(0)),
+            use_cerebras_permanently: Arc::new(AtomicBool::new(false)),
+            cerebras_fallback_count: Arc::new(AtomicUsize::new(0)),
         }
     }
     
     /// Attach a broadcast sender so the client can notify UI of active key
     pub fn set_broadcast(&mut self, tx: broadcast::Sender<String>) {
         self.tx = Some(tx);
+    }
+    
+    /// Determine which provider to use based on failover state
+    /// Returns: (use_cerebras, should_try_groq_first)
+    fn should_use_cerebras(&self) -> (bool, bool) {
+        // Check if permanently switched to Cerebras
+        if self.use_cerebras_permanently.load(Ordering::SeqCst) {
+            return (true, false);
+        }
+        
+        // Check if in temporary Cerebras fallback window
+        let fallback_count = self.cerebras_fallback_count.load(Ordering::SeqCst);
+        if fallback_count > 0 && fallback_count <= CEREBRAS_FALLBACK_WINDOW {
+            return (true, false);
+        }
+        
+        // Default: try Groq first
+        (false, true)
+    }
+    
+    /// Handle Groq failure and update failover state
+    fn handle_groq_failure(&self) {
+        let failures = self.groq_consecutive_failures.fetch_add(1, Ordering::SeqCst) + 1;
+        eprintln!("[Failover] Groq failure #{}", failures);
+        
+        if failures >= MAX_GROQ_FAILURES {
+            self.use_cerebras_permanently.store(true, Ordering::SeqCst);
+            eprintln!("[Failover] ⚠ {} Groq failures - PERMANENTLY switching to Cerebras for this session", failures);
+            
+            // Notify UI
+            if let Some(ref tx) = self.tx {
+                let _ = tx.send(serde_json::json!({
+                    "type": "active_api_key",
+                    "name": "Cerebras (Permanent)"
+                }).to_string());
+            }
+        } else {
+            // Start temporary Cerebras fallback window
+            self.cerebras_fallback_count.store(1, Ordering::SeqCst);
+            eprintln!("[Failover] → Temporary Cerebras fallback (5 responses)");
+        }
+    }
+    
+    /// Handle successful Groq response
+    fn handle_groq_success(&self) {
+        // Reset failure counter on success
+        let prev_failures = self.groq_consecutive_failures.swap(0, Ordering::SeqCst);
+        if prev_failures > 0 {
+            eprintln!("[Failover] ✓ Groq success - reset failure counter (was {})", prev_failures);
+        }
+        
+        // Notify UI we're using Groq
+        if let Some(ref tx) = self.tx {
+            let _ = tx.send(serde_json::json!({
+                "type": "active_api_key",
+                "name": "Groq"
+            }).to_string());
+        }
+    }
+    
+    /// Increment Cerebras fallback counter and check if should return to Groq
+    fn increment_cerebras_fallback(&self) {
+        let count = self.cerebras_fallback_count.fetch_add(1, Ordering::SeqCst) + 1;
+        
+        if count > CEREBRAS_FALLBACK_WINDOW {
+            // Reset and return to Groq
+            self.cerebras_fallback_count.store(0, Ordering::SeqCst);
+            eprintln!("[Failover] ← Returning to Groq after {} Cerebras responses", CEREBRAS_FALLBACK_WINDOW);
+        }
     }
     
     /// Returns the next Cerebras (name, key) rotating every 2 requests, or None to use Groq
@@ -499,13 +582,76 @@ impl GroqClient {
             "content": message
         }));
         
-        // Use Cerebras for voice answers (rotating keys) with 429 retry
-        let initial_key = self.get_cerebras_key();
-        let is_cerebras = initial_key.is_some();
+        // Smart Failover: Groq (fast) → Cerebras (fallback)
+        let (should_use_cerebras, should_try_groq) = self.should_use_cerebras();
         
+        // Try Groq first with 3-second timeout (if not in Cerebras mode)
+        if should_try_groq && !should_use_cerebras {
+            let groq_payload = json!({
+                "model": "openai/gpt-oss-120b",
+                "messages": messages,
+                "temperature": 0.5,
+                "max_completion_tokens": 8192
+            });
+            
+            let groq_result = tokio::time::timeout(
+                GROQ_TIMEOUT,
+                self.client
+                    .post("https://api.groq.com/openai/v1/chat/completions")
+                    .header("Authorization", format!("Bearer {}", self.api_key))
+                    .header("Content-Type", "application/json")
+                    .json(&groq_payload)
+                    .send()
+            ).await;
+            
+            match groq_result {
+                Ok(Ok(response)) if response.status().is_success() => {
+                    if let Ok(json_resp) = response.json::<serde_json::Value>().await {
+                        let content = json_resp["choices"][0]["message"]["content"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
+                        
+                        // Success! Reset failure counter
+                        self.handle_groq_success();
+                        return Ok(content);
+                    }
+                }
+                Ok(Ok(response)) => {
+                    // Groq returned error status
+                    eprintln!("[Failover] Groq error status: {}", response.status());
+                    self.handle_groq_failure();
+                }
+                Ok(Err(e)) => {
+                    // Request error
+                    eprintln!("[Failover] Groq request error: {}", e);
+                    self.handle_groq_failure();
+                }
+                Err(_) => {
+                    // Timeout
+                    eprintln!("[Failover] Groq timeout (>3s)");
+                    self.handle_groq_failure();
+                }
+            }
+            
+            // Groq failed, fall through to Cerebras
+            eprintln!("[Failover] → Falling back to Cerebras");
+        }
+        
+        // Use Cerebras (either as fallback or permanent switch)
+        if self.cerebras_keys.is_empty() {
+            return Err("Groq failed and no Cerebras keys available".to_string());
+        }
+        
+        // Increment fallback counter (only if in fallback mode, not permanent)
+        if !self.use_cerebras_permanently.load(Ordering::SeqCst) {
+            self.increment_cerebras_fallback();
+        }
+        
+        let initial_key = self.get_cerebras_key();
         let (base_url, initial_api_key, model_name) = match initial_key {
             Some((_name, k)) => ("https://api.cerebras.ai/v1/chat/completions".to_string(), k, "gpt-oss-120b"),
-            None => ("https://api.groq.com/openai/v1/chat/completions".to_string(), self.api_key.clone(), "openai/gpt-oss-120b"),
+            None => return Err("No Cerebras keys available".to_string()),
         };
         
         let payload = json!({
@@ -515,8 +661,8 @@ impl GroqClient {
             "max_completion_tokens": 8192
         });
         
-        // Retry loop: on 429, try next key (up to all keys)
-        let max_retries = if is_cerebras { self.cerebras_keys.len() + 1 } else { 2 };
+        // Retry loop: on 429, try next key (up to all keys) - no timeout for Cerebras
+        let max_retries = self.cerebras_keys.len() + 1;
         let mut current_key = initial_api_key;
         let mut retry_index = self.current_key_index();
         
@@ -534,7 +680,7 @@ impl GroqClient {
                 let json: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
                 let content = json["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
                 return Ok(content);
-            } else if response.status().as_u16() == 429 && is_cerebras && attempt < max_retries - 1 {
+            } else if response.status().as_u16() == 429 && attempt < max_retries - 1 {
                 // Rate limited - try next key immediately
                 retry_index += 1;
                 if let Some((_name, k)) = self.get_cerebras_key_at(retry_index) {
@@ -545,7 +691,7 @@ impl GroqClient {
             } else {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
-                return Err(format!("API error {}: {}", status, &body[..body.len().min(200)]));
+                return Err(format!("Cerebras API error {}: {}", status, &body[..body.len().min(200)]));
             }
         }
         
