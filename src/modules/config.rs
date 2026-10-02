@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CerebrasKey {
+pub struct GeminiKey {
     pub name: String,
     pub key: String,
 }
@@ -11,15 +11,7 @@ pub struct CerebrasKey {
 pub struct Config {
     pub groq_api_key: String,
     #[serde(default)]
-    pub cerebras_api_key: String,
-    #[serde(default)]
-    pub cerebras_api_keys: Vec<String>,
-    #[serde(default)]
-    pub cerebras_keys: Vec<CerebrasKey>,
-    #[serde(default)]
-    pub openrouter_api_key: String,
-    #[serde(default)]
-    pub gemini_api_key: String,
+    pub gemini_keys: Vec<GeminiKey>,
     pub server: ServerConfig,
     pub hotkey: String,
     pub project_path: String,
@@ -43,10 +35,6 @@ pub struct AudioConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelsConfig {
     pub whisper: String,
-    pub text: String,
-    pub vision: String,
-    #[serde(default)]
-    pub ring: String,
     #[serde(default)]
     pub gemini: String,
 }

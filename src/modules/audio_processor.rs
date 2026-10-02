@@ -12,9 +12,9 @@ const SAMPLE_RATE: u32 = 16000;
 const MIN_AUDIO_DURATION: Duration = Duration::from_millis(600);
 const MAX_AUDIO_DURATION: Duration = Duration::from_secs(30);
 
-// Adaptive silence detection (increased for natural pauses in speech)
-const BASE_SILENCE_TIMEOUT: Duration = Duration::from_secs(2); // 2 seconds for short pauses
-const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_secs(2); // 2 seconds for longer pauses
+// Adaptive silence detection (balanced for natural interview speech without splitting questions)
+const BASE_SILENCE_TIMEOUT: Duration = Duration::from_millis(1600); // 1.6s for natural speech pauses
+const EXTENDED_SILENCE_TIMEOUT: Duration = Duration::from_millis(1800); // 1.8s for longer pauses
 const NOISE_CALIBRATION_FRAMES: usize = 50;
 const RECALIBRATION_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -37,15 +37,18 @@ type ConversationHistory = Arc<RwLock<Vec<ConversationMessage>>>;
 type MessageBuffer = Arc<RwLock<VecDeque<String>>>;
 type CandidateContext = Arc<RwLock<VecDeque<String>>>;
 
+// Rolling buffer: hold partial transcript for natural speech pauses
+const PENDING_MERGE_WINDOW: Duration = Duration::from_millis(1800); // 1.8s merge window
+
 pub struct AudioProcessor {
     audio_receiver: Receiver<Vec<f32>>,
     groq_client: Arc<GroqClient>,
     tx: broadcast::Sender<String>,
     conversation: ConversationHistory,
-    candidate_context: CandidateContext, // NEW: Candidate's responses
+    candidate_context: CandidateContext,
     buffer: MessageBuffer,
     connected: Arc<AtomicUsize>,
-    
+
     // State
     accumulated_audio: Vec<f32>,
     speech_start: Option<Instant>,
@@ -53,18 +56,22 @@ pub struct AudioProcessor {
     is_processing: bool,
     consecutive_speech_frames: usize,
     consecutive_silence_frames: usize,
-    
-    // Adaptive noise floor (like Parakeet/LockedIn)
+
+    // Adaptive noise floor
     noise_floor: f32,
     noise_calibration_buffer: Vec<f32>,
     is_calibrated: bool,
     energy_history: VecDeque<f32>,
     last_recalibration: Option<Instant>,
-    
+
     // Speech quality metrics
     peak_energy: f32,
     avg_speech_energy: f32,
     speech_frame_count: usize,
+
+    // Rolling buffer for slow speakers (gap between sentences)
+    pending_transcript: Option<String>,
+    pending_since: Option<Instant>,
 }
 
 impl AudioProcessor {
@@ -73,17 +80,17 @@ impl AudioProcessor {
         groq_client: Arc<GroqClient>,
         tx: broadcast::Sender<String>,
         conversation: ConversationHistory,
-        candidate_context: CandidateContext, // NEW
+        candidate_context: CandidateContext,
         buffer: MessageBuffer,
         connected: Arc<AtomicUsize>,
     ) -> Self {
-        info!("AudioProcessor initializing with streaming-like VAD...");
+        info!("AudioProcessor initializing with VAD + rolling buffer...");
         Self {
             audio_receiver,
             groq_client,
             tx,
             conversation,
-            candidate_context, // NEW
+            candidate_context,
             buffer,
             connected,
             accumulated_audio: Vec::with_capacity(16000 * 30),
@@ -100,12 +107,14 @@ impl AudioProcessor {
             peak_energy: 0.0,
             avg_speech_energy: 0.0,
             speech_frame_count: 0,
+            pending_transcript: None,
+            pending_since: None,
         }
     }
 
     pub async fn run(&mut self) {
         info!("AudioProcessor started. Calibrating noise floor...");
-        
+
         loop {
             let recv_result = self.audio_receiver.recv_timeout(Duration::from_millis(20));
             let now = Instant::now();
@@ -121,6 +130,8 @@ impl AudioProcessor {
                 Err(RecvTimeoutError::Timeout) => {
                     if self.is_calibrated {
                         self.check_silence_timeout(now).await;
+                        // Check if pending transcript merge window has expired
+                        self.check_pending_transcript(now).await;
                     }
                 }
                 Err(RecvTimeoutError::Disconnected) => {
@@ -344,22 +355,40 @@ impl AudioProcessor {
 
         if !text.is_empty() && text.len() >= 5 {
             info!("Transcription ({:?}): {}", transcription_time, text);
-            
+
+            // Rolling buffer: check if this is a continuation of a slow speaker's sentence
+            let final_text = if let (Some(pending), Some(pending_since)) = (self.pending_transcript.take(), self.pending_since.take()) {
+                let elapsed = Instant::now().duration_since(pending_since);
+                if elapsed <= PENDING_MERGE_WINDOW {
+                    // Still within merge window — combine with pending
+                    let merged = format!("{} {}", pending, text);
+                    info!("[RollingBuffer] Merged slow-speaker fragments: '{}'", &merged[..merged.len().min(100)]);
+                    merged
+                } else {
+                    // Window expired — pending was already sent, use current text only
+                    text.to_string()
+                }
+            } else {
+                text.to_string()
+            };
+
+            // Store this transcript as pending for potential merge with next fragment
+            self.pending_transcript = Some(final_text.clone());
+            self.pending_since = Some(Instant::now());
+
             // 1. Notify UI of transcription
             self.send_or_buffer(serde_json::json!({
                 "type": "transcription",
-                "text": text,
-                "metrics": {
-                    "processing_time_ms": transcription_time.as_millis()
-                }
+                "text": final_text,
+                "metrics": { "processing_time_ms": transcription_time.as_millis() }
             }).to_string()).await;
 
-            // 2. Add to history (keep bounded to last 30 messages = 15 Q&A pairs)
+            // 2. Add to history
             {
                 let mut conv = self.conversation.write().await;
                 conv.push(ConversationMessage {
                     role: "user".to_string(),
-                    content: text.to_string(),
+                    content: final_text.clone(),
                 });
                 if conv.len() > 30 {
                     let drain_count = conv.len() - 30;
@@ -368,55 +397,52 @@ impl AudioProcessor {
                 }
             }
 
-            // 3. Get Answer
-            info!("Sending to AI for answer...");
+            // 3. Get Answer from Gemini (primary) or Groq fallback
+            info!("Sending to Gemini for answer...");
             let history = self.conversation.read().await.clone();
-            
+
             let candidate_context_vec: Vec<String> = match self.candidate_context.try_read() {
                 Ok(ctx) => ctx.iter().cloned().collect(),
-                Err(_) => {
-                    info!("Candidate context locked, proceeding without it");
-                    Vec::new()
-                }
+                Err(_) => { info!("Candidate context locked, proceeding without it"); Vec::new() }
             };
-            
+
             let mut attempt = 1;
             let max_attempts = 2;
-            let timeout_duration = Duration::from_secs(5);
-            
+            // Gemini can take a bit longer than Groq but is worth it
+            let timeout_duration = Duration::from_secs(15);
+
             loop {
                 info!("Attempt {} of {} for AI response", attempt, max_attempts);
-                
+
                 let result = tokio::time::timeout(
                     timeout_duration,
-                    self.groq_client.chat_with_context(text, &history, &candidate_context_vec)
+                    self.groq_client.chat_with_context(&final_text, &history, &candidate_context_vec)
                 ).await;
-                
+
                 match result {
                     Ok(Ok(answer)) => {
                         let total_time = start_time.elapsed();
-                        info!("Answer received ({:?} total): {}", total_time, answer.chars().take(50).collect::<String>());
-                        
+                        info!("Answer received ({:?} total)", total_time);
+
+                        // Clear pending — answer has been delivered
+                        self.pending_transcript = None;
+                        self.pending_since = None;
+
                         self.conversation.write().await.push(ConversationMessage {
                             role: "assistant".to_string(),
                             content: answer.clone(),
                         });
-                        
+
                         self.send_or_buffer(serde_json::json!({
                             "type": "answer",
                             "text": answer,
-                            "metrics": {
-                                "total_time_ms": total_time.as_millis()
-                            }
+                            "metrics": { "total_time_ms": total_time.as_millis() }
                         }).to_string()).await;
                         break;
                     }
                     Ok(Err(e)) => {
                         error!("Chat error on attempt {}: {}", attempt, e);
-                        if attempt < max_attempts {
-                            attempt += 1;
-                            continue;
-                        }
+                        if attempt < max_attempts { attempt += 1; continue; }
                         self.send_or_buffer(serde_json::json!({
                             "type": "answer",
                             "text": format!("Error: {}", e)
@@ -425,10 +451,7 @@ impl AudioProcessor {
                     }
                     Err(_) => {
                         error!("Request timed out after {}s (attempt {})", timeout_duration.as_secs(), attempt);
-                        if attempt < max_attempts {
-                            attempt += 1;
-                            continue;
-                        }
+                        if attempt < max_attempts { attempt += 1; continue; }
                         self.send_or_buffer(serde_json::json!({
                             "type": "answer",
                             "text": "Request timed out. Please try again."
@@ -440,6 +463,17 @@ impl AudioProcessor {
         }
 
         self.is_processing = false;
+    }
+
+    /// Check if the pending transcript merge window has expired and flush it
+    async fn check_pending_transcript(&mut self, now: Instant) {
+        if let (Some(_pending), Some(pending_since)) = (&self.pending_transcript, self.pending_since) {
+            if now.duration_since(pending_since) > PENDING_MERGE_WINDOW {
+                // Window expired — clear pending (answer was already sent)
+                self.pending_transcript = None;
+                self.pending_since = None;
+            }
+        }
     }
 
     async fn send_or_buffer(&self, message: String) {
